@@ -146,9 +146,16 @@
 
   U.error = (el, e, retry) => {
     console.warn(e);
-    el.innerHTML = `<div class="empty err"><p class="empty-t">No se pudieron cargar los datos</p>
-      <p>La fuente (statsapi.mlb.com) no respondió. Revisa la conexión del teléfono y vuelve a intentar.</p>
-      <button type="button" class="btn" data-retry>Reintentar</button></div>`;
+    // Un fallo de red y un fallo de la app no se explican igual.
+    const net = e && (e.name === 'AbortError' || /^HTTP|fetch|network|Load failed/i.test(String(e.message || '')));
+    el.innerHTML = net
+      ? `<div class="empty err"><p class="empty-t">No se pudieron cargar los datos</p>
+        <p>La fuente (statsapi.mlb.com) no respondió. Revisa la conexión del teléfono y vuelve a intentar.</p>
+        <button type="button" class="btn" data-retry>Reintentar</button></div>`
+      : `<div class="empty err"><p class="empty-t">Algo falló al armar esta pantalla</p>
+        <p>Es un error de la app, no de tu conexión. Prueba otra vez; si sigue, avisa qué pantalla era.</p>
+        <p class="note">${esc(String((e && e.message) || e))}</p>
+        <button type="button" class="btn" data-retry>Reintentar</button></div>`;
     const b = el.querySelector('[data-retry]');
     if (b && retry) b.addEventListener('click', retry);
   };

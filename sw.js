@@ -2,11 +2,11 @@
    Guarda la app para que abra sin señal, y la última respuesta de cada consulta para mostrar algo mientras vuelve la red.
    Lo que sale de esta copia lleva la hora en que se guardó (x-pizarra-guardado), para que la app no lo muestre como nuevo.
    Los datos en vivo nunca salen del caché si hay red. */
-const APP = 'pizarra-app-v2';
+const APP = 'pizarra-app-v3';
 const DATA = 'pizarra-datos-v2';
 const DATA_MAX = 150;
-const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png',
-  'js/calc.js', 'js/api.js', 'js/charts.js', 'js/core.js', 'js/juegos.js', 'js/tabla.js', 'js/lideres.js', 'js/equipos.js', 'js/mas.js'];
+const SHELL = ['./', 'index.html', 'styles.css?v=3', 'manifest.webmanifest', 'icons/icon-192.png',
+  'js/calc.js?v=3', 'js/api.js?v=3', 'js/charts.js?v=3', 'js/core.js?v=3', 'js/juegos.js?v=3', 'js/tabla.js?v=3', 'js/lideres.js?v=3', 'js/equipos.js?v=3', 'js/mas.js?v=3'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(APP).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
