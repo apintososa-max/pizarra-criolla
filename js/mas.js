@@ -1,5 +1,6 @@
 /* Pizarra Criolla · mas.js
-   Glosario de cada métrica (qué mide y cómo se calcula), formato del torneo, fuente de los datos e instalación. */
+   Glosario de cada métrica (qué mide y cómo se calcula, en grupos que se abren al tocarlos), formato del torneo,
+   fuente de los datos e instalación. Las explicaciones largas de la tabla (desempates, probabilidades) viven aquí. */
 (function (root) {
   'use strict';
   const PC = root.PC;
@@ -31,7 +32,10 @@
     ['Equipos', [
       ['AVE, Dif', 'En la tabla: promedio de juegos ganados y juegos detrás del líder.'],
       ['Récord pitagórico', 'Los juegos que un equipo "debería" haber ganado según sus carreras anotadas y permitidas (fórmula Pythagenpat). La diferencia con el récord real es la columna Suerte.'],
-      ['Probabilidad de clasificar', '10.000 simulaciones del calendario que falta. Cada juego se decide al azar según la fuerza de los dos equipos (su récord pitagórico, acercado a .500 al principio de la temporada) y una pequeña ventaja de jugar en casa.']
+      ['Empates en la tabla', 'Si dos o más equipos quedan con el mismo promedio, se ordenan por el récord entre ellos, luego por la diferencia de carreras y luego por las carreras anotadas. Es el criterio que usa la app mientras se confirma con la LVBP. Un juego extra de desempate, si lo hay, cuenta en la tabla.'],
+      ['Probabilidad de clasificar', '10.000 simulaciones del calendario que falta. Cada juego se decide al azar según la fuerza de los dos equipos (su récord pitagórico, acercado a .500 al principio de la temporada) y una pequeña ventaja de jugar en casa.'],
+      ['Al inicio de la temporada', 'Con pocos juegos jugados la simulación todavía pesa mucho el .500: cada equipo parte casi igual y las diferencias crecen a medida que avanza el calendario. Por eso en las primeras semanas las probabilidades se parecen tanto.'],
+      ['A la final', 'En el Round Robin: probabilidad de terminar entre los 2 primeros, con 10.000 simulaciones de los juegos que faltan y la fuerza que cada equipo mostró en la temporada regular y en lo que va del Round Robin.']
     ]],
     ['En vivo', [
       ['Probabilidad de ganar', 'Calculada después de cada turno con el marcador, el inning, los outs y los corredores en base.'],
@@ -42,6 +46,7 @@
 
   PC.register('mas', {
     tab: 'mas',
+    skeleton: 'lista',
     render(el) {
       const st = PC.state;
       const install = st.installPrompt ? '<button type="button" class="btn" id="btn-install">Instalar en este teléfono</button>' : '';
@@ -59,7 +64,8 @@
           ${U.note('Este formato rige desde 2022-23 (comprobado con los juegos de la fuente de datos). Antes cambió varias veces: hasta 2019-20 hubo primera ronda y semifinales por series; en 2020-21, solo semifinales; en 2021-22, Round Robin sin comodín. La app rotula cada temporada con su propio formato.')}
         </section>
         <section class="sec">${U.head('Glosario')}
-          ${G.map(([t, items]) => `<h3 class="gl-h">${esc(t)}</h3><dl class="gloss">${items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`).join('')}
+          <div class="ms-grps">${G.map(([t, items]) => `<details class="ms-grp"><summary><span>${esc(t)}</span><small>${items.length} términos</small></summary>
+            <dl class="ms-gl">${items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></details>`).join('')}</div>
         </section>
         <section class="sec">${U.head('De dónde salen los datos')}
           <p>De la API pública de estadísticas de MLB (statsapi.mlb.com), que registra la LVBP jugada por jugada. El teléfono la consulta directo; todos los cálculos (tabla, métricas avanzadas, probabilidades, figuras) se hacen en el teléfono con esos datos.</p>

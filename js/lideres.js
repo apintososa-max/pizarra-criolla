@@ -48,9 +48,10 @@
   ];
   PC.METRICS = { bat: BAT, pit: PIT };
 
-  // Línea de apoyo bajo cada nombre
-  const ctxBat = p => `${L(p).PA} PA · ${F.avg(R(p).AVG)}/${F.avg(R(p).OBP)}/${F.avg(R(p).SLG)} · ${L(p).HR} HR`;
-  const ctxPit = p => `${F.ip(L(p).OUTS)} IL · EFE ${F.era(R(p).ERA)} · ${L(p).SO} K · ${L(p).BB} BB`;
+  // Línea de apoyo bajo cada nombre (espacio duro entre número y unidad: "13 HR" no se parte)
+  const NB = String.fromCharCode(160);
+  const ctxBat = p => `${L(p).PA}${NB}PA · ${F.avg(R(p).AVG)}/${F.avg(R(p).OBP)}/${F.avg(R(p).SLG)} · ${L(p).HR}${NB}HR`;
+  const ctxPit = p => `${F.ip(L(p).OUTS)}${NB}IL · EFE${NB}${F.era(R(p).ERA)} · ${L(p).SO}${NB}K · ${L(p).BB}${NB}BB`;
 
   function qualifier(group, tg) {
     const maxG = Math.max(0, ...Object.values(tg));
@@ -60,8 +61,51 @@
       : { ok: p => L(p).OUTS / 3 >= C.QUAL_IP * g(p), min: Math.round(C.QUAL_IP * maxG), unit: 'IL', loose: p => L(p).OUTS >= 15 };
   }
 
+  // Íconos de Lista y Tabla
+  const I_LIST = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.6" cy="6.5" r="1.1"/><circle cx="4.6" cy="12" r="1.1"/><circle cx="4.6" cy="17.5" r="1.1"/></svg>';
+  const I_GRID = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v15M14.5 4.5v15"/></svg>';
+
+  // ---------- esqueleto de carga (core.js lo pinta mientras llegan los datos) ----------
+  // La maqueta de la pantalla con sus mismas clases y un texto de muestra que no se ve (.ld-gh, css/tablas.css): título
+  // con Lista/Tabla, Bateo/Pitcheo con el interruptor, fases y métricas, y el 1.º en su bloque azul con 8 filas (o la
+  // tabla). Mide lo mismo que lo que viene, así la lista no salta al llegar los datos.
+  const gh = t => `<span class="ld-gh">${esc(t)}</span>`;
+  const sk = (w, h, r) => `<span class="sk" style="width:${w};height:${h}${r ? ';border-radius:' + r : ''}"></span>`;
+  const skChips = ws => `<div class="sk-row">${ws.map(w => sk(w, '36px', '999px')).join('')}</div>`;
+  const times = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('');
+  const SK_NAMES = ['Nombre Apellido', 'Nombre Apellidos', 'Nom Apellido', 'Nombre Ape'];
+  const phaseRow = {}; // temporada → si su última pintura llevó la fila de fases
+  U.skeletons.lideres = () => {
+    // la ruta dice qué viene: Bateo o Pitcheo, si la métrica lleva el interruptor y si hay fila de fases
+    const a = /^#\/lideres\/?([^/]*)\/?([^/]*)\/?([^/]*)/.exec(location.hash) || [];
+    const bat = a[1] !== 'pitcheo', list = bat ? BAT : PIT;
+    const m = list.find(x => x.k === a[2]) || list[0];
+    const season = PC.state.season;
+    // una temporada pasada ya tuvo Round Robin y final; la en curso, lo que se vio la última vez
+    const phases = a[3] === 'L' || a[3] === 'W' || (season in phaseRow ? phaseRow[season] : API.isPast(season));
+    const line = bat ? `000${NB}PA · .000/.000/.000 · 00${NB}HR` : `00.0${NB}IL · EFE${NB}0.00 · 00${NB}K · 00${NB}BB`;
+    const head = `<div class="page-head"><div class="ld-head">` +
+      `<span class="sk" style="font-size:var(--fs-h1);width:6.4em;height:1em"></span>${sk('90px', '38px', '10px')}</div>` +
+      `<div class="ld-bar"><div class="utabs"><a>${gh('Bateo')}</a><a>${gh('Pitcheo')}</a></div>` +
+      (m.rate ? `<span class="tog ld-qual">${sk('42px', '26px', '999px')}<span>${gh('Solo calificados')}<small>${gh(`000 ${bat ? 'PA' : 'IL'} o más`)}</small></span></span>` : '') +
+      `</div>${phases ? skChips(['8.5rem', '6.5rem', '4rem']) : ''}${skChips(['3.5rem', '3.5rem', '3.5rem', '3.5rem', '3.75rem', '4.25rem', '3.5rem'])}</div>`;
+    if (PC.state.prefs.leadView === 'tabla') {
+      return head + `<section class="sec tb"><div class="tbl-wrap"><table class="tbl leaders-t">` +
+        `<thead><tr><th class="name">${gh('Jugador')}</th>${times(7, () => `<th>${gh('OPS')}</th>`)}</tr></thead><tbody>` +
+        times(10, i => `<tr class="tap"><th class="name"><span class="lt-p"><span class="lt-rk">${gh(String(i + 1))}</span>` +
+          `<span class="lt-who">${gh(SK_NAMES[i % 4])}<span class="tchip s">LVB</span></span></span></th>` +
+          `${times(7, () => `<td>${gh('.000')}</td>`)}</tr>`) + '</tbody></table></div></section>';
+    }
+    return head + `<ol class="leaders ld-list"><li class="ld-top"><span class="ld-rank"></span>` +
+      `<span class="ld-who"><b>${gh(SK_NAMES[0])}</b></span><span class="ld-v">${gh('.000')}</span>` +
+      `<small class="ld-ctx"><span class="tchip s">LVB</span> ${gh(line)}</small></li>` +
+      times(8, i => `<li><span class="ld-rank">${gh(String(i + 2))}</span><span class="ld-who"><b>${gh(SK_NAMES[(i + 1) % 4])}</b> ` +
+        `<span class="tchip s">LVB</span><small>${gh(line)}</small></span><span class="ld-v">${gh('.000')}</span></li>`) + '</ol>';
+  };
+
   PC.register('lideres', {
     tab: 'lideres',
+    skeleton: 'lideres',
     every: () => (PC.state.liveToday ? 240000 : 0),
     async render(el, args, ctx) {
       const group = args[0] === 'pitcheo' ? 'pit' : 'bat';
@@ -80,53 +124,77 @@
       const sorted = pool.filter(p => m.get(p) != null).sort((a, b) => (m.asc ? m.get(a) - m.get(b) : m.get(b) - m.get(a)) || (L(b).PA || L(b).OUTS) - (L(a).PA || L(a).OUTS));
       const gpath = group === 'bat' ? 'bateo' : 'pitcheo';
       const phases = ['R', 'L', 'W'].filter(p => p === 'R' || games.some(g => g.type === p && g.status === 'final'));
+      phaseRow[season] = phases.length > 1; // para el esqueleto de la próxima vez
+      // Puesto de cada uno: los empatados comparten el número
+      const rk = [];
+      sorted.forEach((p, i) => { rk[i] = i && m.get(p) === m.get(sorted[i - 1]) ? rk[i - 1] : i + 1; });
+      // cada fase con el nombre de su formato (antes de 2021-22 la segunda ronda era una semifinal)
+      const phaseName = p => PC.phaseLabel(season, p, ((games.find(g => g.type === p) || {}).series) || '');
+      // Bateo y Pitcheo conservan la fase elegida
+      const tabHref = (gp, ms) => `#/lideres/${gp}${phase !== 'R' ? `/${ms[0].k}/${phase}` : ''}`;
 
-      let html = `<div class="page-head"><h1>Líderes ${PC.seasonLabel(season)}</h1>
-        <div class="seg" role="group" aria-label="Tipo de líderes">
-          <a href="#/lideres/bateo" class="${group === 'bat' ? 'on' : ''}">Bateo</a>
-          <a href="#/lideres/pitcheo" class="${group === 'pit' ? 'on' : ''}">Pitcheo</a>
-        </div>
-        ${phases.length > 1 ? U.chips(phases.map(p => ({ k: p, label: PC.PHASES[p], href: `#/lideres/${gpath}/${m.k}/${p}` })), phase, 'Fase') : ''}
+      // Controles en tres filas como mucho: título con Lista/Tabla; Bateo/Pitcheo con el interruptor; fase (si hay
+      // más de una) y métricas. Lista/Tabla y calificados son preferencias: repintan sin sumar pasos al historial.
+      let html = `<div class="page-head">
+        <div class="ld-head"><h1>Líderes ${PC.seasonLabel(season)}</h1>
+          <div class="ld-vista" role="group" aria-label="Ver como">
+            <button type="button" data-v="lista" aria-pressed="${view === 'lista'}" aria-label="Lista" title="Lista">${I_LIST}</button>
+            <button type="button" data-v="tabla" aria-pressed="${view === 'tabla'}" aria-label="Tabla" title="Tabla">${I_GRID}</button>
+          </div></div>
+        <div class="ld-bar">${U.utabs([{ k: 'bat', label: 'Bateo', href: tabHref('bateo', BAT) }, { k: 'pit', label: 'Pitcheo', href: tabHref('pitcheo', PIT) }], group, 'Tipo de líderes')}
+          ${m.rate ? `<label class="tog ld-qual"><input type="checkbox" role="switch" id="opt-qual" ${onlyQual ? 'checked' : ''}><span>Solo calificados<small>${q.min} ${q.unit} o más</small></span></label>` : ''}</div>
+        ${phases.length > 1 ? U.chips(phases.map(p => ({ k: p, label: phaseName(p), href: `#/lideres/${gpath}/${m.k}/${p}` })), phase, 'Fase') : ''}
         ${U.chips(list.map(x => ({ k: x.k, label: x.label, href: `#/lideres/${gpath}/${x.k}${phase !== 'R' ? '/' + phase : ''}` })), m.k, 'Métrica')}
-        <div class="opts">
-          ${m.rate ? `<label class="tog"><input type="checkbox" id="opt-qual" ${onlyQual ? 'checked' : ''}> Solo calificados <small>(${q.min} ${q.unit} o más)</small></label>` : '<span></span>'}
-          <div class="seg mini" role="group" aria-label="Vista">
-            <button type="button" data-v="lista" class="${view === 'lista' ? 'on' : ''}">Lista</button>
-            <button type="button" data-v="tabla" class="${view === 'tabla' ? 'on' : ''}">Tabla</button>
-          </div>
-        </div></div>`;
+      </div>`;
 
       if (!sorted.length) {
         html += U.empty('Sin datos todavía', 'Esta lista se llena sola con los primeros juegos.');
       } else if (view === 'lista') {
-        let rank = 0, prev = null;
-        html += `<ol class="leaders">${sorted.slice(0, 40).map((p, i) => {
-          const v = m.get(p);
-          if (v !== prev) rank = i + 1;
-          prev = v;
-          return `<li><span class="ld-rank">${rank}</span>
-            <span class="ld-who">${U.player(p.id, p.name)} ${p.team ? U.chip(p.team) : `<small>${p.nTeams} equipos</small>`}<small>${esc(group === 'bat' ? ctxBat(p) : ctxPit(p))}</small></span>
-            <span class="ld-v">${esc(m.fmt(v))}</span></li>`;
+        // El 1.º va en estilo pizarra; el resto, filas enteras tocables que llevan al jugador.
+        html += `<ol class="leaders ld-list">${sorted.slice(0, 40).map((p, i) => {
+          const v = m.get(p), rank = rk[i];
+          const who = p.id ? `<a class="plink stretch" href="#/jugador/${p.id}">${esc(p.name)}</a>` : `<b>${esc(p.name)}</b>`;
+          const tm = p.team ? U.chip(p.team, i ? 's' : 's inv') : `<small>${p.nTeams} equipos</small>`;
+          const line = esc(group === 'bat' ? ctxBat(p) : ctxPit(p));
+          const val = `<span class="ld-v"><span class="sr">${esc(m.label)}: </span>${esc(m.fmt(v))}</span>`;
+          return i === 0
+            ? `<li class="ld-top${p.id ? ' rowlink' : ''}"><span class="ld-rank">${rank}</span><span class="ld-who">${who}</span>${val}<small class="ld-ctx">${tm} ${line}</small></li>`
+            : `<li${p.id ? ' class="rowlink"' : ''}><span class="ld-rank">${rank}</span><span class="ld-who">${who} ${tm}<small>${line}</small></span>${val}</li>`;
         }).join('')}</ol>`;
       } else {
+        // Columna fija: puesto, nombre y la insignia debajo (más angosta). Justo después, la métrica elegida, que es
+        // la que ordena la tabla: siempre a la vista sin deslizar. Luego el volumen (PA o IL) y el resto en su orden.
+        const vol = group === 'bat' ? { k: 'PA', label: 'PA', get: p => L(p).PA } : list.find(x => x.k === 'IP');
+        const col = x => ({ k: x.k, label: x.label, get: x.get, fmt: x.fmt });
         const cols = [
-          { k: 'n', label: 'Jugador', first: true, cls: 'name', html: p => `${U.player(p.id, p.name)} ${p.team ? U.chip(p.team) : ''}` },
-          group === 'bat' ? { k: 'PA', label: 'PA', get: p => L(p).PA } : { k: 'IPx', label: 'IL', get: p => F.ip(L(p).OUTS) }
-        ].concat(list.filter(x => x.k !== 'IP').map(x => ({ k: x.k, label: x.label, get: x.get, fmt: x.fmt, cls: x.k === m.k ? 'hl' : '' })));
-        html += U.table(cols, sorted, { cls: 'leaders-t', sortable: false });
+          { k: 'n', label: 'Jugador', first: true, cls: 'name', html: (p, i) => `<span class="lt-p"><span class="lt-rk"><span class="sr">Puesto </span>${rk[i]}</span>` +
+            `<span class="lt-who">${U.player(p.id, p.name)}${p.team ? U.chip(p.team, 's') : p.nTeams ? `<small>${p.nTeams} equipos</small>` : ''}</span></span>` },
+          Object.assign(col(m), { cls: 'hl' })
+        ].concat([vol].concat(list.filter(x => x !== vol)).filter(x => x !== m).map(col));
+        // las filas .tap (toda la fila lleva al jugador) las atiende el oyente de core.js
+        const label = `Líderes de ${group === 'bat' ? 'bateo' : 'pitcheo'} por ${m.label}${phase !== 'R' ? ', ' + phaseName(phase) : ''}`;
+        html += `<section class="sec tb">${U.table(cols, sorted, { cls: 'leaders-t', label, sortable: false, rowClass: () => 'tap' })}</section>`;
       }
       const lg = st.lg;
       const teamG = Object.keys(tg).reduce((a, k) => a + tg[k], 0);
       html += U.note(group === 'bat'
-        ? `Liga: AVE ${F.avg(lg.AVG)} · OBP ${F.avg(lg.OBP)} · SLG ${F.avg(lg.SLG)}${teamG ? ` · ${F.dec1(lg.bat.R / teamG)} carreras por equipo por juego` : ''}. wRC+ y OPS+: 100 es el promedio de la liga.`
-        : `Liga: EFE ${F.era(lg.ERA)} · WHIP ${F.era(lg.WHIP)} · K% ${F.pct(lg.pKPct)} · BB% ${F.pct(lg.pBBPct)}. FIP usa la constante de la LVBP de esta temporada (${F.era(lg.cFIP)}).`);
+        ? `Promedio de la liga: AVE ${F.avg(lg.AVG)} · OBP ${F.avg(lg.OBP)} · SLG ${F.avg(lg.SLG)}${teamG ? ` · ${F.dec1(lg.bat.R / teamG)} carreras por equipo por juego` : ''}.`
+        : `Promedio de la liga: EFE ${F.era(lg.ERA)} · WHIP ${F.era(lg.WHIP)} · K% ${F.pct(lg.pKPct)} · BB% ${F.pct(lg.pBBPct)}. Constante del FIP: ${F.era(lg.cFIP)}.`);
       html += U.fresh(Math.min(API.when(games), st.t || Date.now()));
       el.innerHTML = html;
+      // la métrica elegida queda a la vista aunque esté al final de su fila: lo hace core.js al terminar de pintar
 
+      // Preferencias: se repinta en el sitio (sin historial ni salto) y el foco vuelve al control que se tocó.
+      const again = sel => PC.refresh(ctx).then(() => {
+        const n = ctx.alive() && el.querySelector(sel);
+        if (n && document.activeElement !== n) { try { n.focus({ preventScroll: true }); } catch (e) { /* navegador viejo */ } }
+      });
       const qb = el.querySelector('#opt-qual');
-      if (qb) qb.addEventListener('change', () => { prefs.qual = qb.checked; PC.savePrefs(); this.render(el, args, ctx); });
+      if (qb) qb.addEventListener('change', () => { prefs.qual = qb.checked; PC.savePrefs(); again('#opt-qual'); });
       el.querySelectorAll('[data-v]').forEach(b => b.addEventListener('click', () => {
-        prefs.leadView = b.dataset.v; PC.savePrefs(); this.render(el, args, ctx);
+        if (b.getAttribute('aria-pressed') === 'true') return;
+        el.querySelectorAll('[data-v]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); // se marca al instante
+        prefs.leadView = b.dataset.v; PC.savePrefs(); again(`[data-v="${b.dataset.v}"]`);
       }));
     },
     refresh(el, args, ctx) { return this.render(el, args, ctx); }

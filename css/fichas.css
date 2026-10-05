@@ -1,0 +1,204 @@
+/* Pizarra Criolla · css/fichas.css
+   Fichas de equipo y de jugador: el bloque de pizarra con los 5 números clave, la rejilla de números y los
+   percentiles. Usa los tokens y componentes de styles.css; aquí solo lo propio de las fichas. */
+
+/* ---------- volver: flecha alineada con el borde, 48 px de toque ---------- */
+.crumbs .fi-back { display: inline-flex; align-items: center; gap: 2px; margin: -12px 0 -12px -12px; padding: 0 12px 0 6px; font-weight: 600; }
+.fi-back .ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.fi-back:hover { text-decoration: none; }
+@media (hover: hover) { .fi-back:hover span { text-decoration: underline; } }
+
+/* ---------- índice de equipos: la fila entera se toca ---------- */
+.fi-idx a { grid-template-columns: auto minmax(0, 1fr) auto; min-height: 72px; padding: var(--s3) var(--s4) var(--s3) var(--s3); }
+.fi-idx .tm-name { gap: 2px; overflow-wrap: anywhere; hyphens: auto; }
+.fi-idx .tm-name b { font: 700 var(--fs-lead)/1.2 var(--font-body); }
+.fi-idx .tm-rec { gap: 4px; }
+.fi-idx .tm-rec b { font: 800 var(--fs-num)/1 var(--font-display); letter-spacing: .01em; }
+.fi-idx .tm-rec small { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+/* con la letra grande del teléfono (o en 320 px), el récord baja debajo del nombre */
+@media (max-width: 20em) {
+  .fi-idx a { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "chip name" "chip rec"; row-gap: 6px; }
+  .fi-idx .tchip { grid-area: chip; }
+  .fi-idx .tm-name { grid-area: name; }
+  .fi-idx .tm-rec { grid-area: rec; flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: var(--s2); text-align: left; }
+}
+/* con la letra grande la insignia se achica, para que el nombre no parta en 3 líneas (la media query en em sigue a
+   la letra del sistema: 22em son 352 px con la letra normal, así que en 360 px no cambia nada) */
+@media (max-width: 22em) {
+  .teams .tchip.xl { font-size: var(--fs-lead); border-radius: var(--r-s); }
+}
+
+/* ---------- la pizarra de la ficha: azul de la bandera con las 8 estrellas ---------- */
+.fh {
+  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s4) var(--s4) 14px; border-radius: var(--r-l); box-shadow: var(--shadow);
+  background: var(--board) radial-gradient(120% 80% at 0% 0%, rgba(255, 255, 255, .08), transparent 60%);
+  color: var(--chalk);
+}
+.fh::before {
+  content: ""; position: absolute; right: 12px; top: 10px; width: 150px; height: 66px; opacity: .2; pointer-events: none;
+  background: var(--stars) center / contain no-repeat;
+}
+.fh > * { position: relative; }
+.fh .eyebrow { color: var(--chalk-dim); }
+/* "temporada 2025-26" no se parte (ni en el guion): si no cabe, baja entera */
+.fh-nw { white-space: nowrap; }
+.fh h1, .fh .sk-h1 { font: 800 var(--fs-h1)/1 var(--font-display); text-transform: uppercase; letter-spacing: .02em; overflow-wrap: break-word; }
+.fh-meta { font-size: var(--fs-sm); color: var(--chalk-dim); }
+.fh a { color: inherit; }
+
+/* equipo: insignia grande y nombre; debajo, el récord como las carreras del marcador */
+/* el nombre se queda al lado de la insignia mientras quepa su palabra más larga; si no, baja entero */
+.fh-id { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); min-width: 0; }
+.fh-id h1, .fh-id .sk-h1 { flex: 1 0 auto; width: min-content; max-width: 100%; }
+.fh-rec { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; margin-top: var(--s1); }
+.fh-rec > b { font: 800 var(--fs-hero)/.95 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.fh-rec p { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); color: var(--chalk-dim); }
+.fh-rec strong { font: 700 var(--fs-lead)/1.1 var(--font-body); color: var(--chalk); }
+.fh-rec .lead strong { color: var(--bulb); }
+
+/* jugador: la insignia del equipo en la línea de arriba lleva a su ficha (toque de 44 px sin mover nada) */
+.fh-eb { line-height: 1.7; }
+.fh-tm { position: relative; }
+.fh-tm .tchip { margin-right: 6px; vertical-align: 1px; }
+.fh-tm::after { content: ""; position: absolute; inset: -13px -6px; }
+.fh-tm:hover { text-decoration: none; }
+@media (hover: hover) { .fh-tm:hover span { text-decoration: underline; } }
+
+/* la línea de números grandes: cada casilla se reparte el ancho; el número se achica con la pizarra (cqi) para que
+   quepa en 360 px sin bajar de 18 px, y nunca pasa de --fs-num */
+.fh-line {
+  display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); margin: 6px 0 0;
+  background: var(--board-2); border-radius: 10px; container-type: inline-size;
+}
+.fh-line > div { min-width: 0; padding: 10px 2px 9px; text-align: center; }
+.fh-line > div + div { box-shadow: -1px 0 0 rgba(255, 255, 255, .12); }
+/* las siglas van escritas tal cual (wRC+ lleva minúscula): sin text-transform */
+.fh-line dt { font: 700 var(--fs-cap)/1.15 var(--font-body); letter-spacing: .06em; color: var(--chalk-dim); overflow-wrap: anywhere; }
+.fh-line abbr { text-decoration: none; cursor: help; }
+.fh-line dd { margin: 6px 0 0; font: 800 var(--fs-h2)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+@supports (font-size: 1cqi) { .fh-line dd { font-size: min(var(--fs-num), calc(37cqi / var(--n, 5))); } }
+.fh-line .top1 dd { color: var(--bulb); }
+.fh-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; font-size: var(--fs-sm); color: var(--chalk-dim); }
+.fh-foot span { background: rgba(0, 0, 0, .2); border-radius: 14px; padding: 4px 10px; }
+.fh-foot b { color: var(--chalk); font-variant-numeric: tabular-nums; }
+
+/* ---------- casillas del equipo: un número grande y su puesto entre los 8 ---------- */
+/* una sola tarjeta con líneas finas; 3 columnas (2 con la letra grande del teléfono) */
+.ftiles, .fgrid {
+  display: grid; margin: 0; padding: 0; list-style: none; overflow: hidden;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m);
+}
+/* cada casilla dibuja su raya de arriba y de la izquierda, corrida 1 px afuera: las del borde quedan recortadas */
+.ftiles > *, .fgrid > div { margin: -1px 0 0 -1px; border-top: 1px solid var(--rule); border-left: 1px solid var(--rule); min-width: 0; }
+.ftiles { grid-template-columns: repeat(auto-fill, minmax(max(6.2rem, 30%), 1fr)); }
+.ftiles li { display: flex; flex-direction: column; gap: 4px; padding: 10px var(--s3) var(--s3); }
+.ft-l { flex: 1; font: 600 var(--fs-sm)/1.25 var(--font-body); color: var(--muted); }
+.ft-v { font: 800 var(--fs-num)/1.05 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+/* sin espacio (360 px), el texto baja debajo de la regla */
+.ft-r { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font: 600 var(--fs-sm)/1.2 var(--font-body); color: var(--ink-2); white-space: nowrap; }
+.ftiles li.best .ft-r { color: var(--ink); font-weight: 700; }
+/* la regla de 8 puntos: el puesto del equipo marcado (el 1.º, en dorado) */
+.ft-m { display: inline-flex; gap: 2px; flex: none; }
+.ft-m i { width: 5px; height: 5px; border-radius: 50%; background: var(--rule-2); }
+.ft-m i.on { width: 7px; height: 7px; margin: -1px 0; background: var(--ink); }
+.ftiles li.best .ft-m i.on { background: var(--pc-h2); }
+
+/* ---------- el resto de los números del jugador: rejilla compacta ---------- */
+.fgrid { grid-template-columns: repeat(auto-fill, minmax(max(4.6rem, 22%), 1fr)); }
+.fgrid > div { padding: 9px 10px 10px; }
+.fgrid dt { font: 700 var(--fs-cap)/1.15 var(--font-body); letter-spacing: .05em; color: var(--muted); }
+.fgrid dd { margin: 4px 0 0; font: 700 var(--fs-lead)/1.2 var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------- percentiles: la bola lleva el número; de azul (peor) a dorado (mejor) ---------- */
+.fpc {
+  display: flex; flex-direction: column; margin: 0; padding: 10px var(--s3) 6px; list-style: none;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m);
+  --ball: calc(var(--fs-sm) * 2.05);
+  overflow: hidden; /* la capa de la bola, corrida con translateX, no debe ensanchar la página */
+}
+.fpc li { display: grid; grid-template-columns: 6.6em minmax(0, 1fr) 3.4em; align-items: center; gap: 10px; min-height: 38px; font-size: var(--fs-sm); }
+/* color: el tono más cercano (sN) y, si el teléfono sabe mezclar, el punto exacto entre dos tonos (--a, --b y --w los pone equipos.js) */
+.fpc li { --pcc: var(--pc-m); }
+.fpc li.s0 { --pcc: var(--pc-c2); } .fpc li.s1 { --pcc: var(--pc-c1); } .fpc li.s3 { --pcc: var(--pc-h1); } .fpc li.s4 { --pcc: var(--pc-h2); }
+@supports (color: color-mix(in srgb, red 50%, blue)) { .fpc li[style] { --pcc: color-mix(in srgb, var(--b) var(--w), var(--a)); } }
+.fpc-l { color: var(--ink-2); }
+.fpc-v { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fpc-t { position: relative; height: 6px; margin: 0 calc(var(--ball) / 2); border-radius: 3px; background: var(--rule); }
+/* la marca del promedio (50) */
+.fpc-t::after { content: ""; position: absolute; z-index: 1; left: 50%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--rule-2); }
+.fpc-f {
+  position: absolute; inset: 0; border-radius: 3px; background: var(--pcc); opacity: .55;
+  transform: scaleX(var(--p)); transform-origin: left center;
+}
+/* la bola corre sobre una capa del ancho de la barra: translateX en % de ese ancho la pone en su percentil */
+.fpc-b { position: absolute; z-index: 2; inset: 0; transform: translateX(calc(var(--p) * 100%)); }
+.fpc-b b {
+  position: absolute; left: 0; top: 50%; width: var(--ball); height: var(--ball); margin: calc(var(--ball) / -2) 0 0 calc(var(--ball) / -2);
+  display: grid; place-items: center; border-radius: 50%; background: var(--pcc); box-shadow: 0 0 0 2px var(--card);
+  font: 700 var(--fs-sm)/1 var(--font-body); font-variant-numeric: tabular-nums; color: #0d1530;
+}
+.fpc li.lo .fpc-b b { color: #fff; }
+.fpc li.fpc-leg { min-height: 0; padding-top: 2px; }
+.fpc-leg-t { display: grid; grid-template-columns: 1fr auto 1fr; font: 600 var(--fs-cap)/1.2 var(--font-body); color: var(--muted); }
+.fpc-leg-t span:first-child { text-align: left; }
+.fpc-leg-t span:last-child { text-align: right; }
+/* al abrir la ficha la barra se llena y la bola corre hasta su lugar (una sola vez; solo transform) */
+.fpc.anim .fpc-f { animation: fpc-llena 700ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms); }
+.fpc.anim .fpc-b { animation: fpc-corre 700ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms); }
+@keyframes fpc-llena { from { transform: scaleX(0); } }
+@keyframes fpc-corre { from { transform: translateX(0); } }
+/* con la letra muy grande, la barra baja a su propia línea */
+@media (max-width: 20em) {
+  /* la bola sobresale media altura por arriba y por abajo de la barra: ese es el espacio entre filas */
+  .fpc li:not(.fpc-leg) { grid-template-columns: minmax(0, 1fr) auto; row-gap: calc(var(--ball) / 2); padding: 4px 0 calc(var(--ball) / 2 - 2px); }
+  .fpc li:not(.fpc-leg) .fpc-t { grid-column: 1 / -1; grid-row: 2; }
+  .fpc li.fpc-leg { grid-template-columns: minmax(0, 1fr); }
+  .fpc-leg > span:not(.fpc-leg-t) { display: none; }
+}
+
+/* ---------- calendario y tablas: filas enteras tocables ---------- */
+/* el rival, "vs. ZUL Águilas". Nunca se corta a media palabra sin "…":
+   - si la lista mide menos de 18em (360 px con la letra al 125% o más), ninguna fila lleva el nombre: queda "vs. ZUL",
+     con la sigla de la insignia, y el nombre solo para el lector de pantalla. Así todas las filas quedan iguales;
+   - si no, el nombre ocupa lo que quede y, si no cabe entero, termina en "…";
+   - y si a una fila le quedan menos de 3em (la hora de los próximos es más ancha), su nombre salta a una segunda
+     línea que no se ve: la caja mide una línea y corta lo demás. */
+.cal .glist { container-type: inline-size; }
+.fi-opp {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start; column-gap: 6px;
+  min-width: 0; height: 1.45em; line-height: 1.45; overflow: hidden; white-space: nowrap;
+}
+.fi-opp-v { display: inline-flex; align-items: center; gap: 6px; }
+/* "vs." y "en" del mismo ancho: las insignias quedan en columna */
+.fi-opp-p { min-width: 1.45em; }
+.fi-opp-n { flex: 1 1 3em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 18em) {
+  .fi-opp-n { position: absolute; width: 1px; height: 1px; clip: rect(0 0 0 0); }
+}
+.glist b.fi-live { color: var(--live); }
+/* 44 px de toque por fila; el tinte al tocar, mezclado donde el teléfono sabe (color-mix) y el del fondo donde no.
+   El segundo selector alcanza la primera columna, que es fija al deslizar y lleva su propio fondo (styles.css). */
+.tbl tr.fi-tap { height: 2.75rem; cursor: pointer; }
+.tbl tr.fi-tap:active > *, .tbl-wrap.sticky .tbl tr.fi-tap:active > * { background: var(--paper); }
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .tbl tr.fi-tap:active > *, .tbl-wrap.sticky .tbl tr.fi-tap:active > * { background: color-mix(in srgb, var(--accent) 9%, var(--card)); }
+}
+
+/* ---------- esqueletos de Equipos y de las fichas (equipos.js): la maqueta real, apagada ---------- */
+/* el texto de muestra no se ve: da el alto y el ancho de lo que viene; su fondo, línea por línea, es la barra gris */
+.sk-tx {
+  color: transparent; background: var(--rule); border-radius: var(--r-s);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.fh .sk-tx { background: var(--board-2); }
+.fh-line .sk-tx { background: rgba(255, 255, 255, .1); }
+.tchip.sk-chip { background: var(--rule); color: transparent; }
+.fh .tchip.sk-chip { background: var(--board-2); }
+/* los enlaces de la maqueta no llevan a nada: ni se tocan ni se iluminan */
+.sk-x a { color: var(--rule); pointer-events: none; }
+
+@media (prefers-color-scheme: dark) {
+  /* de noche todos los tonos de los percentiles son claros: número oscuro en la bola */
+  .fpc-b b, .fpc li.lo .fpc-b b { color: #050a1a; }
+}

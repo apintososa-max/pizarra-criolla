@@ -19,6 +19,16 @@
     return `<span class="meter" aria-hidden="true"><i style="width:${w}%"></i></span>`;
   }
 
+  // Las filas .tap (toda la fila lleva al equipo, o al jugador en Líderes) las atiende el oyente de core.js, y el chip
+  // elegido (fase) lo deja a la vista core.js en todas las pantallas después de pintar.
+
+  // Puesto en un cuadrito; el color (zona de clasificación) lo pone la clase de la fila.
+  const posCol = title => ({ k: 'pos', label: '#', title, cls: 'pos', html: r => `<span class="rk">${r.pos}</span>` });
+  const teamCol = { k: 'team', label: 'Equipo', first: true, cls: 'name', html: r => `${U.chip(r.id, 's')} ${U.teamLink(r.id)}` };
+  const TIE = 'Puesto. Los empates se ordenan por el récord entre los empatados, luego por la diferencia de carreras y luego por las carreras anotadas (criterio por confirmar con la LVBP).';
+  // Leyenda de una línea con los cuadritos de color
+  const legend = items => `<p class="tb-ley">${items.map(([q, txt]) => `<span><i class="${q}" aria-hidden="true"></i>${txt}</span>`).join('')}</p>`;
+
   // ---------- temporada regular ----------
   function regular(games, season) {
     const reg = games.filter(g => g.type === 'R');
@@ -27,10 +37,10 @@
     const played = rows.reduce((a, r) => a + r.G, 0) / 2;
     const modern = season >= PC.MODERN;
     const cols = [
-      { k: 'pos', label: '#', cls: 'num' },
-      { k: 'team', label: 'Equipo', first: true, cls: 'name', html: r => `${U.chip(r.id)} ${U.teamLink(r.id)}` },
+      posCol(TIE),
+      teamCol,
       { k: 'G', label: 'JJ', title: 'Juegos jugados' },
-      { k: 'W', label: 'JG', title: 'Juegos ganados' },
+      { k: 'W', label: 'JG', title: 'Juegos ganados', cls: 'strong' },
       { k: 'L', label: 'JP', title: 'Juegos perdidos' },
       { k: 'PCT', label: 'AVE', title: 'Promedio de juegos ganados', fmt: F.avg },
       { k: 'GB', label: 'Dif', title: 'Juegos detrás del líder', fmt: F.gb },
@@ -47,29 +57,34 @@
       { k: 'ex', label: 'Extra', title: 'Récord en juegos de extrainnings', get: r => `${r.exW}-${r.exL}` }
     ];
     const tie = reg.filter(g => g.tiebreaker && g.status === 'final');
-    let html = `<section class="sec">${U.table(cols, rows, { cls: 'standings', rowClass: (r, i) => (modern ? (i === 3 ? 'cut4' : i === 5 ? 'cut6' : '') : '') })}
-      ${modern ? '<p class="legend"><span class="lg-cut4"></span>Los 4 primeros van directo al Round Robin · <span class="lg-cut6"></span>5.º y 6.º juegan el comodín</p>'
-        : U.note(`En ${PC.seasonLabel(season)} el formato de clasificación era distinto al actual.`)}
+    // Con el formato actual: 1.º a 4.º directo al Round Robin (amarillo), 5.º y 6.º al comodín (azul claro).
+    const zone = i => (modern ? (i < 4 ? 'q1 ' : i < 6 ? 'q2 ' : '') : '');
+    let html = `<section class="sec tb">${U.table(cols, rows, { cls: 'standings', label: `Tabla de posiciones ${PC.seasonLabel(season)}`, rowClass: (r, i) => zone(i) + 'tap' })}
+      ${modern ? legend([['q1', 'Directo al Round Robin'], ['q2', 'Comodín']])
+        : `<p class="tb-ley">En ${PC.seasonLabel(season)} el formato de clasificación era distinto al actual.</p>`}
       ${tie.map(g => { const w = g.away.win ? g.away : g.home, l = g.away.win ? g.home : g.away;
-        return U.note(`Incluye el juego de desempate del ${esc(D.short(g.date))}: ${esc(team(w.id).short)} le ganó ${w.score}-${l.score} a ${esc(team(l.id).short)}.`); }).join('')}
-      ${U.note('Empates en la tabla: se ordenan por el récord entre los empatados, luego por diferencia de carreras (criterio por confirmar con la LVBP).')}</section>`;
+        return U.note(`Incluye el juego de desempate del ${esc(D.short(g.date))}: ${esc(team(w.id).short)} le ganó ${w.score}-${l.score} a ${esc(team(l.id).short)}.`); }).join('')}</section>`;
 
     if (played > 0 && pend.length > 0) {
       const sim = simOnce(`R|${season}|${played}|${pend.length}`, () => C.simulate(rows, pend, { n: 10000 }));
       const order = rows.slice().sort((a, b) => sim[b.id].rr - sim[a.id].rr || a.pos - b.pos);
       const left = id => pend.filter(g => g.away.id === id || g.home.id === id).length;
       const pcols = [
-        { k: 'team', label: 'Equipo', first: true, cls: 'name', html: r => `${U.chip(r.id)} ${esc(team(r.id).short)}` },
+        teamCol,
         { k: 'rr', label: 'Round Robin', cls: 'meter-cell', html: r => `${meter(sim[r.id].rr)}<b>${F.prob(sim[r.id].rr)}</b>` },
         { k: 'top4', label: 'Directo', title: 'Terminar entre los 4 primeros', get: r => F.prob(sim[r.id].top4) },
         { k: 'first', label: '1.º', title: 'Terminar primero', get: r => F.prob(sim[r.id].first) },
         { k: 'proj', label: 'Proy.', title: 'Récord final proyectado', get: r => { const w = Math.round(sim[r.id].W); return `${w}-${r.G + left(r.id) - w}`; } },
         { k: 'left', label: 'Faltan', title: 'Juegos que le quedan', get: r => left(r.id) }
       ];
-      html += `<section class="sec">${U.head('Probabilidad de clasificar',
-        `10.000 simulaciones de los ${pend.length} juegos que faltan, con la fuerza de cada equipo según sus carreras anotadas y permitidas y la ventaja de jugar en casa (el home club gana el 54% en la LVBP). Round Robin incluye ganar el comodín: al 5.º le basta un triunfo, el 6.º necesita los dos.`)}
-        ${U.table(pcols, order, { cls: 'probs-t' })}
-        ${played < 40 ? U.note('Con pocos juegos jugados la simulación todavía pesa mucho el .500: cada equipo parte casi igual.') : ''}</section>`;
+      // En las primeras semanas (menos de 10 juegos por equipo) el aviso va a la vista: sin él, unas probabilidades
+      // tan parejas parecen un error. Después queda en la (i).
+      const early = played * 2 / rows.length < 10;
+      html += `<section class="sec tb">${U.head('Probabilidad de clasificar',
+        `10.000 simulaciones de los ${pend.length} juegos que faltan, con la fuerza de cada equipo según sus carreras anotadas y permitidas y la ventaja de jugar en casa (el home club gana el 54% en la LVBP). Round Robin incluye ganar el comodín: al 5.º le basta un triunfo, el 6.º necesita los dos.` +
+        (early ? '' : ' Al principio de la temporada la simulación pesa mucho el .500: cada equipo parte casi igual.'))}
+        ${early ? U.note('Van pocos juegos: la simulación todavía pesa mucho el .500 y cada equipo parte casi igual.') : ''}
+        ${U.table(pcols, order, { cls: 'probs-t', label: 'Probabilidad de clasificar', rowClass: () => 'tap' })}</section>`;
     } else if (played > 0 && pend.length === 0) {
       if (modern) {
         const d = games.filter(g => phaseOf(g) === 'D' && g.status === 'final');
@@ -91,23 +106,25 @@
     }
 
     if (played > 0) {
-      // Suerte: ganados reales menos ganados esperados por carreras
+      // Suerte: ganados reales menos ganados esperados por carreras. Cada fila lleva al equipo.
       const mx = Math.max(1, ...rows.map(r => Math.abs(r.luck)));
       const lk = rows.slice().sort((a, b) => b.luck - a.luck);
       html += `<section class="sec">${U.head('Récord real vs. récord por carreras',
         'Positivo: el equipo ganó más juegos de los que sus carreras justifican (suele ser suerte o un bullpen muy bueno en juegos cerrados). Negativo: lo contrario.')}
         <div class="luck" role="list">${lk.map(r => {
           const w = (Math.abs(r.luck) / mx) * 50;
-          return `<div class="luck-row" role="listitem"><span class="luck-t">${U.chip(r.id)} ${esc(team(r.id).short)}</span>
-            <span class="luck-bar"><i class="${r.luck >= 0 ? 'pos' : 'neg'}" style="width:${w.toFixed(1)}%"></i></span>
+          return `<div class="luck-row rowlink" role="listitem"><span class="luck-t">${U.chip(r.id, 's')}<a class="tlink stretch" href="#/equipo/${r.id}">${esc(team(r.id).short)}</a></span>
+            <span class="luck-bar" aria-hidden="true"><i class="${r.luck >= 0 ? 'pos' : 'neg'}" style="width:${w.toFixed(1)}%"></i></span>
             <span class="luck-v">${F.signed(r.luck, 1)}</span></div>`;
         }).join('')}</div></section>`;
 
-      // Enfrentamientos directos
+      // Enfrentamientos directos: ganados en verde, perdidos en tinta tenue (sin rojo). Cómo se lee va a la vista:
+      // sin eso no se sabe si un 6-2 es a favor o en contra.
       const ids = rows.map(r => r.id);
-      html += `<section class="sec">${U.head('Enfrentamientos directos', 'Récord de cada equipo (fila) contra cada rival (columna).')}
-        <div class="tbl-wrap sticky"><table class="tbl h2h"><thead><tr><th></th>${ids.map(id => `<th scope="col">${esc(team(id).abbr)}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(r => `<tr><th scope="row">${U.chip(r.id)}</th>${ids.map(o => {
+      html += `<section class="sec tb">${U.head('Enfrentamientos directos')}
+        ${U.note('Fila: el equipo · columna: el rival. Un 6-2 es a favor del equipo de la fila.')}
+        <div class="tbl-wrap sticky" tabindex="0" role="region" aria-label="Enfrentamientos directos"><table class="tbl h2h"><thead><tr><th scope="col"><span class="sr">Equipo</span></th>${ids.map(id => `<th scope="col" title="${esc(team(id).name)}">${esc(team(id).abbr)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr><th scope="row">${U.chip(r.id, 's')}</th>${ids.map(o => {
           if (o === r.id) return '<td class="self">·</td>';
           const v = r.vs[o] || { W: 0, L: 0 };
           return `<td class="${v.W > v.L ? 'up' : v.W < v.L ? 'down' : ''}">${v.W}-${v.L}</td>`;
@@ -128,17 +145,20 @@
     reg.forEach(r => { base[r.id] = { pyth: r.pyth, G: r.G }; });
     const sim = pend.length && rows.length ? simOnce(`L|${season}|${played}|${pend.length}`, () => C.simulate(rows, pend, { n: 10000, base })) : null;
     const cols = [
-      { k: 'pos', label: '#', cls: 'num' },
-      { k: 'team', label: 'Equipo', first: true, cls: 'name', html: r => `${U.chip(r.id)} ${U.teamLink(r.id)}` },
-      { k: 'G', label: 'JJ' }, { k: 'W', label: 'JG' }, { k: 'L', label: 'JP' },
-      { k: 'PCT', label: 'AVE', fmt: F.avg }, { k: 'GB', label: 'Dif', fmt: F.gb },
-      { k: 'streak', label: 'Racha', get: r => r.streak || '—' },
-      { k: 'RS', label: 'CA' }, { k: 'RA', label: 'CP' }, { k: 'DIFF', label: '+/-', fmt: v => F.signed(v) }
+      posCol(TIE), teamCol,
+      { k: 'G', label: 'JJ', title: 'Juegos jugados' }, { k: 'W', label: 'JG', title: 'Juegos ganados', cls: 'strong' }, { k: 'L', label: 'JP', title: 'Juegos perdidos' },
+      { k: 'PCT', label: 'AVE', title: 'Promedio de juegos ganados', fmt: F.avg }, { k: 'GB', label: 'Dif', title: 'Juegos detrás del líder', fmt: F.gb },
+      { k: 'streak', label: 'Racha', title: 'G3: tres ganados seguidos; P2: dos perdidos', get: r => r.streak || '—' },
+      { k: 'RS', label: 'CA', title: 'Carreras anotadas' }, { k: 'RA', label: 'CP', title: 'Carreras permitidas' },
+      { k: 'DIFF', label: '+/-', title: 'Diferencia de carreras', fmt: v => F.signed(v) }
     ];
-    if (sim) cols.push({ k: 'fin', label: 'A la final', cls: 'meter-cell', html: r => `${meter(sim[r.id].top2)}<b>${F.prob(sim[r.id].top2)}</b>` });
-    return `<section class="sec">${U.table(cols, rows, { cls: 'standings', rowClass: (r, i) => (i === 1 ? 'cut4' : '') })}
-      <p class="legend"><span class="lg-cut4"></span>Los 2 primeros juegan la final, a ganar 4 de 7</p>
-      ${sim ? U.note(`Simulación de los ${pend.length} juegos que faltan${played ? '' : ' (antes del primer juego)'}, con la fuerza que cada equipo mostró en la temporada regular y en lo que va del Round Robin.`) : ''}</section>`;
+    if (sim) {
+      // la explicación de la simulación va en "Qué significa cada columna", no a la vista
+      cols.push({ k: 'fin', label: 'A la final', cls: 'meter-cell', html: r => `${meter(sim[r.id].top2)}<b>${F.prob(sim[r.id].top2)}</b>`,
+        title: `Probabilidad de terminar entre los 2 primeros: simulación de los ${pend.length} juegos que faltan${played ? '' : ' (antes del primer juego)'}, con la fuerza que cada equipo mostró en la temporada regular y en lo que va del Round Robin.` });
+    }
+    return `<section class="sec tb">${U.table(cols, rows, { cls: 'standings', label: `Tabla del Round Robin ${PC.seasonLabel(season)}`, rowClass: (r, i) => (i < 2 ? 'q1 ' : '') + 'tap' })}
+      ${legend([['q1', 'A la final, a ganar 4 de 7']])}</section>`;
   }
 
   // ---------- series: primera ronda, semifinales, comodín y final ----------
@@ -158,9 +178,9 @@
       const w = PC.seriesWins(list);
       const ids = idsIn(list).sort((a, b) => (w[b] || 0) - (w[a] || 0));
       if (ids.length === 2) {
-        html += `<div class="series-score">
-          <p>${U.chip(ids[0])} ${esc(team(ids[0]).short)} <b>${w[ids[0]] || 0}</b></p>
-          <p>${U.chip(ids[1])} ${esc(team(ids[1]).short)} <b>${w[ids[1]] || 0}</b></p></div>`;
+        // el nombre en su propio span: es lo único que se recorta (con puntos) cuando la letra es grande
+        const side = id => `<p>${U.chip(id, 's')}<span class="ss-n">${esc(team(id).short)}</span><b>${w[id] || 0}</b></p>`;
+        html += `<div class="series-score">${side(ids[0])}${side(ids[1])}</div>`;
       }
       if (phase === 'D' && season >= PC.MODERN) {
         // Comodín: al 5.º le basta un triunfo; el 6.º necesita ganar los dos juegos.
@@ -177,6 +197,7 @@
 
   PC.register('tabla', {
     tab: 'tabla',
+    skeleton: 'tabla',
     every: () => (PC.state.liveToday ? 60000 : 0),
     async render(el, args, ctx) {
       const season = PC.state.season;
@@ -187,7 +208,7 @@
       const name = p => PC.phaseLabel(season, p, ((games.find(g => phaseOf(g) === p) || {}).series) || '');
       const phase = phases.indexOf(args[0]) >= 0 ? args[0] : 'R';
       let html = `<div class="page-head"><h1>Tabla ${PC.seasonLabel(season)}</h1>
-        ${U.chips(phases.map(p => ({ k: p, label: name(p), href: `#/tabla/${p}` })), phase, 'Fase del torneo')}</div>`;
+        ${phases.length > 1 ? U.chips(phases.map(p => ({ k: p, label: name(p), href: `#/tabla/${p}` })), phase, 'Fase del torneo') : ''}</div>`;
       const pg = games.filter(g => phaseOf(g) === phase);
       html += phase === 'R' ? regular(games, season) : phase === 'L' && isRR(pg) ? roundRobin(games, season) : series(games, phase, season);
       html += U.fresh(API.when(games));

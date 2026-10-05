@@ -27,22 +27,62 @@
 <link rel="preconnect" href="https://statsapi.mlb.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Big+Shoulders+Display:wght@600;800&display=swap">
-<link rel="stylesheet" href="styles.css?v=3">
+<script>
+/* Prepedido (primera visita): los datos del arranque se piden junto con los .js y no después de ellos; api.js los toma
+   de window.__pre. Solo lo que no hay guardado (pc1:… en localStorage) y lo que de seguro se va a pedir:
+   - siempre, la temporada en curso (core.js, decideSeason) y el día de hoy (core.js, pulse);
+   - de madrugada (antes de las 5 en Caracas), también ayer (pulse, y la portada de Juegos);
+   - en la portada de Juegos, la temporada anterior (juegos.js, navDates).
+   Las rutas son las mismas de api.js, con SCHED_FIELDS idéntico: si cambian allá (o cambia quién pide qué), aquí también. */
+(function () { try {
+  var B = 'https://statsapi.mlb.com', P = window.__pre = {}, d = new Date(), s = d.getUTCMonth() >= 6 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+  var F = 'dates,date,games,gamePk,gameType,officialDate,gameDate,status,abstractGameState,detailedState,codedGameState,statusCode,reason,startTimeTBD,teams,away,home,team,id,name,score,isWinner,leagueRecord,wins,losses,linescore,currentInning,scheduledInnings,inningHalf,inningState,seriesDescription,seriesGameNumber,doubleHeader,gameNumber,venue,tiebreaker,description,resumeDate,resumedFrom,rescheduleDate,rescheduledFrom';
+  var iso = function (t) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(t); };
+  var sea = function (x) { return '/api/v1/schedule?sportId=17&leagueId=135&season=' + x + '&gameType=R,F,D,L,W&hydrate=linescore&fields=' + F; };
+  var day = function (x) { return '/api/v1/schedule?sportId=17&leagueId=135&date=' + x + '&hydrate=linescore,probablePitcher,decisions'; };
+  var pide = function (p) {
+    try { if (localStorage.getItem('pc1:' + p)) return; } catch (e) { /* sin almacenamiento */ }
+    var f = P[p] = fetch(B + p, { priority: 'low' });
+    f.catch(function () { /* sin señal: api.js vuelve a pedirla */ });
+  };
+  pide(sea(s)); pide(day(iso(d)));
+  if (+new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: 'numeric', hourCycle: 'h23' }).format(d) < 5) pide(day(iso(new Date(d - 864e5))));
+  if (/^(#\/?(juegos\/?)?)?$/.test(location.hash)) pide(sea(s - 1));
+} catch (e) { /* navegador viejo: api.js pide todo como siempre */ } })();
+</script>
+<!-- fuentes sin bloquear la pantalla, y solo lo que se usa: Archivo de 400 a 800 y Big Shoulders 800 -->
+<link rel="preload" as="style" crossorigin href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..800&family=Big+Shoulders+Display:wght@800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" crossorigin href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..800&family=Big+Shoulders+Display:wght@800&display=swap"></noscript>
+<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="css/juegos.css?v=4">
+<link rel="stylesheet" href="css/fichas.css?v=4">
+<link rel="stylesheet" href="css/tablas.css?v=4">
+<link rel="stylesheet" href="css/nav.css?v=4">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#/juegos" aria-label="Pizarra Criolla, ir a los juegos">
-    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1" transform="rotate(45 12 12)" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="12" cy="12" r="2.4" fill="var(--stitch)"/></svg>
-    Pizarra <span>Criolla</span>
+    <span class="brand-mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" transform="rotate(45 12 12)" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M10.2 18.6h3.6v1.8L12 22.2l-1.8-1.8z" fill="#ffcc00"/><circle cx="12" cy="12" r="2.4" fill="#cf142b"/></svg></span>
+    <span class="brand-t">Pizarra <em>Criolla</em></span>
   </a>
   <div class="top-right">
     <a id="live-flag" class="live-flag" href="#/juegos" hidden>En vivo</a>
-    <label class="season"><span class="sr">Temporada</span><select id="season"></select></label>
+    <label class="season"><span class="sr">Temporada</span><select id="season"><option>…</option></select></label>
   </div>
 </header>
+<div id="conn" class="conn" hidden></div>
+<div id="update" class="update" hidden></div>
+<div id="ptr" class="ptr" aria-hidden="true"></div>
 
-<main id="view" tabindex="-1"><p class="loading" role="status">Cargando…</p></main>
+<main id="view" tabindex="-1"><div class="skel" role="status"><span class="sr">Cargando…</span><div class="skel-in" aria-hidden="true">
+<!-- esqueleto de la portada mientras arranca la app (el mismo de U.skeletons.juegos en core.js) -->
+<div class="datebar"><span class="sk" style="width:48px;height:48px;border-radius:12px"></span><div class="sk-col" style="align-items:center"><span class="sk" style="width:70%;height:1.25rem"></span><span class="sk" style="width:35%;height:.8rem"></span></div><span class="sk" style="width:48px;height:48px;border-radius:12px"></span></div>
+<div class="games">
+<div class="sk-card sk-gc"><div class="sk-gc-t"><div class="sk-row"><span class="sk" style="width:2.25rem;height:1.35rem"></span><span class="sk" style="width:44%;height:1.1rem"></span><span style="flex:1"></span><span class="sk" style="width:1.2rem;height:1.75rem"></span></div><div class="sk-row"><span class="sk" style="width:2.25rem;height:1.35rem"></span><span class="sk" style="width:34%;height:1.1rem"></span><span style="flex:1"></span><span class="sk" style="width:1.2rem;height:1.75rem"></span></div></div><div class="sk-gc-s"><span class="sk" style="width:3rem;height:1.75rem"></span><span class="sk" style="width:3.6rem;height:.7rem"></span></div><div class="sk-gc-f"><span class="sk" style="width:60%;height:.8rem"></span></div></div>
+<div class="sk-card sk-gc"><div class="sk-gc-t"><div class="sk-row"><span class="sk" style="width:2.25rem;height:1.35rem"></span><span class="sk" style="width:44%;height:1.1rem"></span><span style="flex:1"></span><span class="sk" style="width:1.2rem;height:1.75rem"></span></div><div class="sk-row"><span class="sk" style="width:2.25rem;height:1.35rem"></span><span class="sk" style="width:34%;height:1.1rem"></span><span style="flex:1"></span><span class="sk" style="width:1.2rem;height:1.75rem"></span></div></div><div class="sk-gc-s"><span class="sk" style="width:3rem;height:1.75rem"></span><span class="sk" style="width:3.6rem;height:.7rem"></span></div><div class="sk-gc-f"><span class="sk" style="width:60%;height:.8rem"></span></div></div>
+<div class="sk-card sk-gc"><div class="sk-gc-t"><div class="sk-row"><span class="sk" style="width:2.25rem;height:1.35rem"></span><span class="sk" style="width:44%;height:1.1rem"></span><span style="flex:1"></span><span class="sk" style="width:1.2rem;height:1.75rem"></span></div><div class="sk-row"><span class="sk" style="width:2.25rem;height:1.35rem"></span><span class="sk" style="width:34%;height:1.1rem"></span><span style="flex:1"></span><span class="sk" style="width:1.2rem;height:1.75rem"></span></div></div><div class="sk-gc-s"><span class="sk" style="width:3rem;height:1.75rem"></span><span class="sk" style="width:3.6rem;height:.7rem"></span></div><div class="sk-gc-f"><span class="sk" style="width:60%;height:.8rem"></span></div></div>
+</div>
+</div></div></main>
 
 <nav class="tabs" aria-label="Secciones">
   <a href="#/juegos" data-tab="juegos"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M7 5.6c1.7 1.6 2.7 3.9 2.7 6.4s-1 4.8-2.7 6.4M17 5.6c-1.7 1.6-2.7 3.9-2.7 6.4s1 4.8 2.7 6.4"/></svg><span>Juegos</span></a>
@@ -51,15 +91,49 @@
   <a href="#/equipos" data-tab="equipos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.5 2.8v5.6c0 4.3-3.2 7.7-7.5 9.1-4.3-1.4-7.5-4.8-7.5-9.1V6l7.5-2.8z"/></svg><span>Equipos</span></a>
   <a href="#/mas" data-tab="mas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h9"/></svg><span>Más</span></a>
 </nav>
+<script>
+/* Mientras bajan los .js: si la pantalla es una sección de la barra, su pestaña ya marcada; y un enlace abierto en frío
+   a otra pantalla (un juego compartido, la tabla) no muestra la portada de Juegos sino un esqueleto neutro.
+   core.js lo cambia por el esqueleto de la pantalla apenas arranca. */
+(function () {
+  var n = location.hash.replace(/^#\/?/, '').split('/')[0] || 'juegos';
+  var a = document.querySelector('.tabs a[data-tab="' + n + '"]');
+  if (a) { a.classList.add('on'); a.setAttribute('aria-current', 'page'); }
+  if (n === 'juegos') return;
+  var sk = function (w, h, r) { return '<span class="sk" style="width:' + w + ';height:' + h + (r ? ';border-radius:' + r : '') + '"></span>'; };
+  var b = sk('100%', '7rem', 'var(--r-m)'), v = document.getElementById('view');
+  if (v) v.innerHTML = '<div class="skel" role="status"><span class="sr">Cargando…</span><div class="skel-in" aria-hidden="true">' +
+    sk('55%', '2rem') + b + b + b + '</div></div>';
+})();
+/* Si la app no arranca (core.js, o algo de lo que necesita, no bajó o falló: un corte a mitad de la descarga), el
+   esqueleto no se queda para siempre: al terminar de leer los .js, o a los 20 s si alguno no termina de bajar, se dice
+   en la pantalla, con "Reintentar". core.js marca PC.arranco apenas arranca, y desde ahí vigila él. Si los .js llegan
+   después de este aviso, la app arranca igual y pinta encima. */
+(function () {
+  var t = 0;
+  var aviso = function () {
+    clearTimeout(t);
+    var v = document.getElementById('view');
+    if ((window.PC && window.PC.arranco) || !v || !v.firstElementChild || !/\bskel\b/.test(v.firstElementChild.className)) return;
+    v.innerHTML = '<div class="empty err"><p class="empty-t">No se pudo abrir la app</p>' +
+      '<p>Parte de la app no terminó de bajar. Revisa la conexión del teléfono y vuelve a intentar.</p>' +
+      '<button type="button" class="btn" data-retry>Reintentar</button></div>';
+    v.querySelector('[data-retry]').addEventListener('click', function () { location.reload(); });
+  };
+  t = setTimeout(aviso, 20000);
+  // core.js arranca en DOMContentLoaded, después de este oyente: se mira en la vuelta siguiente
+  document.addEventListener('DOMContentLoaded', function () { setTimeout(aviso, 0); });
+})();
+</script>
 
-<script src="js/calc.js?v=3"></script>
-<script src="js/api.js?v=3"></script>
-<script src="js/charts.js?v=3"></script>
-<script src="js/core.js?v=3"></script>
-<script src="js/juegos.js?v=3"></script>
-<script src="js/tabla.js?v=3"></script>
-<script src="js/lideres.js?v=3"></script>
-<script src="js/equipos.js?v=3"></script>
-<script src="js/mas.js?v=3"></script>
+<script src="js/calc.js?v=4"></script>
+<script src="js/api.js?v=4"></script>
+<script src="js/charts.js?v=4"></script>
+<script src="js/core.js?v=4"></script>
+<script src="js/juegos.js?v=4"></script>
+<script src="js/tabla.js?v=4"></script>
+<script src="js/lideres.js?v=4"></script>
+<script src="js/equipos.js?v=4"></script>
+<script src="js/mas.js?v=4"></script>
 </body>
 </html>

@@ -63,7 +63,7 @@
     starts.forEach((s, k) => {
       const x0 = x(s.i), x1 = k + 1 < starts.length ? x(starts[k + 1].i) : x(Math.max(n, total));
       if (k) grid += `<line x1="${x0.toFixed(1)}" x2="${x0.toFixed(1)}" y1="${padT}" y2="${padT + plotH}" class="viz-grid"/>`;
-      if (x1 - x0 > 9) labels += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - 5}" class="viz-tick" text-anchor="middle">${s.inning}</text>`;
+      if (x1 - x0 > 9) labels += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - 5}" class="viz-tick viz-inn" data-x0="${x0.toFixed(1)}" text-anchor="middle">${s.inning}</text>`;
     });
 
     // barras de presión (leverage index) por turno
@@ -112,6 +112,21 @@
 </svg>`;
 
     const svg = box.querySelector('svg');
+    // Números de inning que no caben separados ("1011" en extrainnings cortos o con letra grande): el de antes se corre
+    // a la izquierda sin salirse de su inning (data-x0) y, si ni así, se salta; el último (donde va o terminó el juego)
+    // siempre queda. Se miden ya dibujados porque el ancho depende de la letra.
+    let edge = Infinity;
+    [...svg.querySelectorAll('.viz-inn')].reverse().forEach(t => {
+      let b = null;
+      try { b = t.getBBox(); } catch (e) { /* sin dibujar (Firefox viejo lanza): quedan todos */ }
+      if (!b || !b.width) return;
+      const over = b.x + b.width + Math.max(4, b.height * 0.45) - edge;
+      if (over <= 0) { edge = b.x; return; }
+      const cx = b.x + b.width / 2 - over;
+      if (cx < +t.getAttribute('data-x0')) { t.remove(); return; }
+      t.setAttribute('x', cx.toFixed(1));
+      edge = b.x - over;
+    });
     const cross = svg.querySelector('.viz-cross');
     const cl = cross.querySelector('line'), cd = cross.querySelector('circle');
     const tip = tooltip(box);

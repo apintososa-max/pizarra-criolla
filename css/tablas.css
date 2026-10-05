@@ -1,0 +1,208 @@
+/* Pizarra Criolla · css/tablas.css
+   Tabla de posiciones, líderes y Más: el puesto en un cuadrito del color de su zona, la sombra que avisa que la
+   tabla sigue a la derecha, las filas que se tocan enteras, el 1.º de los líderes en estilo pizarra y el glosario.
+   Usa los tokens y componentes de styles.css; aquí solo lo propio de estas pantallas. Sus tablas van dentro de
+   una <section class="sec tb">, para no tocar las de los juegos ni las fichas; solo la sombra del borde derecho
+   vale para todas las tablas que se deslizan. */
+
+/* ---------- todas las tablas que se deslizan (.tbl-wrap): también box score, plantilla y fichas ---------- */
+.tbl-wrap { --tb-sombra: rgba(13, 21, 48, .22); }
+@media (prefers-color-scheme: dark) { .tbl-wrap { --tb-sombra: rgba(0, 0, 0, .65); } }
+/* Sombra en el borde derecho mientras quedan columnas por ver. La tapa (local) viaja con el contenido y la cubre
+   al llegar al final; la sombra (scroll) se queda pegada al borde. Solo CSS, sin escuchar el desplazamiento. */
+.tbl-wrap {
+  background:
+    linear-gradient(to left, var(--card) 40%, transparent) right center / 48px 100% no-repeat local,
+    radial-gradient(farthest-side at 100% 50%, var(--tb-sombra), transparent) right center / 14px 100% no-repeat scroll,
+    var(--card);
+}
+/* encabezados sin fondo propio, para que se vea la sombra (las columnas fijas lo conservan: su selector pesa más) */
+.tbl-wrap .tbl thead th { background: transparent; }
+
+/* ---------- tablas de estas pantallas (.tb) ---------- */
+/* encabezados en mayúsculas chicas (solo aquí: en Líderes y en las fichas romperían wOBA y wRC+) */
+.tb .tbl thead th { font: 700 var(--fs-cap)/1.2 var(--font-body); letter-spacing: .07em; text-transform: uppercase; padding-top: 10px; padding-bottom: 9px; }
+.tb .tbl .strong { font-weight: 700; color: var(--ink); }
+/* las métricas de Líderes van como se escriben (wRC+, wOBA): sin mayúsculas forzadas */
+.tb .leaders-t thead th { text-transform: none; letter-spacing: .02em; }
+/* la explicación de las columnas va después de la leyenda y las notas */
+.tb > .cols-help { order: 1; }
+
+/* fila tocable: lleva al equipo o jugador de su primer enlace (oyente en core.js); sin escala, solo se tiñe al tocar */
+.tb .tbl tbody tr.tap { height: 2.75rem; cursor: pointer; }
+/* El respaldo va en su propia regla y el color-mix dentro de @supports. No sirve repetir la propiedad en la misma
+   regla ("background-color: var(--paper); background-color: color-mix(...)"): con var() adentro la segunda gana al
+   leer la hoja aunque el navegador no entienda color-mix, y al calcularla queda inválida, sin color ninguno. */
+.tb .tbl-wrap .tbl tr.tap:active > * { background-color: var(--paper); }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  @media (hover: hover) { .tb .tbl-wrap .tbl tr.tap:hover > * { background-color: color-mix(in srgb, var(--accent) 5%, var(--card)); } }
+  .tb .tbl-wrap .tbl tr.tap:active > * { background-color: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+}
+
+/* ---------- tabla de posiciones ---------- */
+/* columna del puesto de ancho fijo: la del equipo se pega justo a su derecha (crece con la letra del teléfono) */
+.tb .tbl.standings { --tb-pos: calc(1.5rem + 16px); }
+.tb .tbl.standings tr > .pos { width: var(--tb-pos); min-width: var(--tb-pos); max-width: var(--tb-pos); padding: 0 6px 0 10px; text-align: center; }
+.tb .tbl-wrap.sticky .tbl.standings tr > :nth-child(2) { left: var(--tb-pos); }
+.tb .tbl .name .tchip { margin-right: 4px; }
+/* el puesto: número en un cuadrito; amarillo = directo al Round Robin (o a la final), azul claro = comodín */
+.rk {
+  display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: var(--r-s);
+  font: 700 var(--fs-sm)/1 var(--font-body); color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.q1 .rk { background: var(--q1); color: var(--q1-ink); }
+/* Comodín: el azul claro de la pizarra (las cifras tenues sobre el azul de la bandera, --chalk-dim) con el número en
+   el azul de la pizarra. El --q2 de antes daba 1,3:1 contra la tarjeta y casi no se veía. Ahora, en claro, 1,9:1 más
+   un borde interior de 4,8:1; en oscuro, 9:1 (claro sobre la noche, como el amarillo). El número, a 6:1 o más. */
+.tb { --tb-q2: var(--chalk-dim); --tb-q2-ink: var(--board); }
+.q2 .rk, .tb-ley i.q2 { background: var(--tb-q2); color: var(--tb-q2-ink); box-shadow: inset 0 0 0 1px var(--muted); }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .q2 .rk, .tb-ley i.q2 { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tb-q2-ink) 50%, transparent); }
+}
+/* leyenda de una línea */
+.tb-ley { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; font-size: var(--fs-sm); color: var(--ink-2); }
+.tb-ley span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.tb-ley i { width: .875rem; height: .875rem; border-radius: 4px; flex: none; }
+.tb-ley i.q1 { background: var(--q1); }
+
+/* enfrentamientos directos: ganados en verde, perdidos en tinta tenue (sin rojo) */
+.tb .h2h td.down { color: var(--muted); }
+.tb .h2h tbody th { padding-left: 10px; }
+
+/* récord real vs. por carreras: insignia y nombre (la fila entera lleva al equipo), barra hacia + o − */
+.luck-row {
+  display: grid; grid-template-columns: minmax(0, 9.6em) 1fr 3.2em; align-items: center; gap: 10px;
+  min-height: 44px; padding: 6px 0; font-size: var(--fs-sm);
+  transition: transform var(--t-toque) var(--ease-out);
+}
+.luck-row:active { transform: scale(.98); }
+/* insignia y nombre en una línea; el nombre se recorta con puntos en su enlace (.tlink, abajo) */
+.luck-t { display: flex; align-items: center; gap: var(--s2); min-width: 0; white-space: nowrap; overflow: hidden; }
+.luck-t .tlink { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.luck-bar i.pos { background: var(--accent); }
+.luck-bar i.neg { background: var(--muted); }
+/* la barra va posicionada (styles.css) y quedaría encima del ::after del enlace: sin esto, tocarla no hace nada */
+.luck-bar { pointer-events: none; }
+/* Con poco ancho (360 px con la letra grande) el nombre se comería la barra: queda solo la insignia. El enlace no se
+   quita, solo se angosta a cero: lo sigue leyendo el lector de pantalla y su ::after (.stretch) sigue cubriendo la fila. */
+.luck { container-type: inline-size; }
+@container (max-width: 17rem) {
+  .luck-row { grid-template-columns: auto 1fr 3.2em; }
+  .luck-t { gap: 0; }
+  .luck-t .tlink { flex: 0 0 0; width: 0; text-overflow: clip; }
+}
+
+/* ---------- series (comodín, semifinal, final) ---------- */
+/* Las dos cajas van en una fila solo si los dos nombres caben completos. La base (11,5 em de la letra de la caja) es
+   la caja más ancha: insignia, "Magallanes" o "Cardenales" y el número, medida en 11,4 em. Por eso a 360 px, y con
+   la letra grande del teléfono, bajan a dos filas; desde ~390 px van lado a lado. El nombre sigue siendo lo único que
+   se recorta si aun así no cabe: la insignia y el número de juegos ganados no se encogen. */
+.series-score { flex-wrap: wrap; }
+.series-score p { flex: 1 1 11.5em; }
+.series-score .ss-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.series-score .tchip, .series-score b { flex: none; }
+
+/* ---------- líderes ---------- */
+/* título con Lista/Tabla a la derecha */
+.ld-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--s2) var(--s3); }
+.ld-vista { display: inline-flex; flex: none; border: 1px solid var(--rule-2); border-radius: 10px; background: var(--card); }
+.ld-vista button {
+  position: relative; display: grid; place-items: center; width: 44px; height: 36px; margin: 0; padding: 0;
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  transition: transform var(--t-toque) var(--ease-out);
+}
+.ld-vista button::after { content: ""; position: absolute; inset: -4px 0; } /* 44 px de toque */
+.ld-vista button:first-child { border-radius: 9px 0 0 9px; }
+.ld-vista button:last-child { border-radius: 0 9px 9px 0; border-left: 1px solid var(--rule-2); }
+.ld-vista button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.ld-vista button:active { transform: scale(.95); }
+@media (hover: hover) { .ld-vista button:hover { color: var(--ink); } .ld-vista button[aria-pressed="true"]:hover { color: var(--accent); } }
+.ld-vista svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ld-vista svg circle { fill: currentColor; stroke: none; }
+
+/* Bateo/Pitcheo y, en la misma fila si cabe, el interruptor de calificados */
+.ld-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s4); }
+.ld-bar .utabs { flex: 1 0 auto; }
+.ld-qual { margin-left: auto; gap: var(--s3); }
+.ld-qual > span { display: flex; flex-direction: column; line-height: 1.15; }
+.ld-qual small { margin-top: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* la lista: el 1.º en una pizarra aparte y el resto en una tarjeta */
+.leaders.ld-list { display: flex; flex-direction: column; background: none; border: 0; border-radius: 0; }
+.ld-list > li { min-height: 60px; background: var(--card); border: solid var(--rule); border-width: 0 1px 1px; }
+.ld-list > li:first-child, .ld-list > .ld-top + li { border-top-width: 1px; border-radius: var(--r-m) var(--r-m) 0 0; }
+.ld-list > li:last-child { border-bottom-width: 1px; border-radius: 0 0 var(--r-m) var(--r-m); }
+.ld-list > .ld-top + li:last-child { border-radius: var(--r-m); }
+.ld-list .ld-who .plink { font-size: var(--fs-body); }
+@media (hover: hover) { .ld-list > li.rowlink:not(.ld-top):hover { background: var(--paper); } }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  @media (hover: hover) { .ld-list > li.rowlink:not(.ld-top):hover { background: color-mix(in srgb, var(--accent) 5%, var(--card)); } }
+}
+
+/* el 1.º: azul de la bandera con las estrellas, el número grande en amarillo */
+.leaders.ld-list > .ld-top {
+  position: relative; isolation: isolate; overflow: hidden;
+  /* nombre y número arriba; la línea de apoyo debajo, a todo el ancho */
+  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "r n v" "r c c"; align-items: end; gap: 6px var(--s3);
+  margin-bottom: var(--s2); padding: var(--s4);
+  background: var(--board) radial-gradient(120% 80% at 0% 0%, rgba(255, 255, 255, .08), transparent 60%);
+  color: var(--chalk); border: 0; border-radius: var(--r-l); box-shadow: var(--shadow);
+}
+.ld-top::before {
+  content: ""; position: absolute; z-index: -1; right: 84px; top: 8px; width: 132px; height: 58px; opacity: .16; pointer-events: none;
+  background: var(--stars) center / contain no-repeat;
+}
+.leaders.ld-list > .ld-top .ld-rank {
+  grid-area: r; align-self: center; display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%;
+  background: var(--bulb); color: var(--board); font: 800 var(--fs-body)/1 var(--font-body);
+}
+.ld-list > .ld-top .ld-who > a, .ld-list > .ld-top .ld-who > b {
+  font: 800 var(--fs-h2)/1.05 var(--font-display); text-transform: uppercase; letter-spacing: .02em; color: var(--chalk);
+}
+.ld-top .ld-who { grid-area: n; }
+.ld-top .ld-v { grid-area: v; font: 800 var(--fs-hero)/.9 var(--font-display); color: var(--bulb); letter-spacing: .01em; }
+.ld-top .ld-ctx { grid-area: c; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; color: var(--chalk-dim); font-variant-numeric: tabular-nums; }
+@media (hover: hover) { .ld-top .plink:hover { color: var(--chalk); } }
+.ld-top .stretch:focus-visible::after { outline-color: var(--bulb); }
+
+/* vista Tabla: en la columna fija el puesto, el nombre y la insignia debajo (así la columna es más angosta y la
+   métrica elegida, que va justo después, se ve sin deslizar) */
+.tb .leaders-t .lt-p { display: flex; align-items: center; gap: 8px; }
+.tb .leaders-t .lt-rk { min-width: 1.4em; text-align: right; color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+.tb .leaders-t .lt-who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.tb .leaders-t .lt-who small { margin: 0; }
+
+/* esqueleto de carga (lideres.js): la maqueta real con un texto de muestra que no se ve (su fondo es la barra gris),
+   así mide lo mismo que lo que viene, también con la letra grande */
+.ld-gh { color: transparent; background: var(--rule); border-radius: var(--r-s); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.skel .ld-list .tchip, .skel .leaders-t .tchip { background: var(--rule); color: transparent; }
+.skel .ld-top .ld-gh, .skel .ld-list > .ld-top .tchip, .skel .leaders.ld-list > .ld-top .ld-rank { background: var(--board-2); }
+.skel .ld-list, .skel .tbl-wrap { pointer-events: none; }
+
+/* ---------- Más: glosario ---------- */
+/* una tarjeta por grupo que se abre al tocarla; adentro, cada término arriba y su explicación debajo */
+.ms-grps { display: flex; flex-direction: column; gap: var(--s2); max-width: 70ch; }
+.ms-grp { background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m); }
+.ms-grp > summary {
+  display: flex; align-items: center; gap: var(--s3); min-height: 52px; padding: 0 var(--s4); list-style: none; cursor: pointer;
+  font: 700 var(--fs-lead)/1.2 var(--font-body); color: var(--ink); border-radius: inherit;
+  -webkit-user-select: none; user-select: none;
+}
+.ms-grp > summary::-webkit-details-marker { display: none; }
+.ms-grp > summary small { margin-left: auto; }
+/* flecha que gira al abrir */
+.ms-grp > summary::after {
+  content: ""; flex: none; width: 8px; height: 8px; margin: -4px 2px 0 0;
+  border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(45deg);
+  transition: transform var(--t-micro) var(--ease-out);
+}
+.ms-grp[open] > summary::after { transform: translateY(4px) rotate(225deg); }
+.ms-grp > summary:active { background: var(--paper); }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .ms-grp > summary:active { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+}
+.ms-gl { margin: 0; display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
+.ms-gl > div { padding: 10px var(--s4) var(--s3); }
+.ms-gl > div + div { border-top: 1px solid var(--rule); }
+.ms-gl dt { font: 700 var(--fs-body)/1.3 var(--font-body); color: var(--ink); }
+.ms-gl dd { margin: 3px 0 0; font-size: var(--fs-body); line-height: 1.45; color: var(--ink-2); }

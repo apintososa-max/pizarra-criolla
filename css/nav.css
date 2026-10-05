@@ -1,0 +1,93 @@
+/* Pizarra Criolla · css/nav.css
+   Navegación y avisos globales: aviso de conexión (#conn), aviso de versión nueva (#update), tirar hacia abajo
+   para actualizar (#ptr) y flecha de volver. Usa los tokens de styles.css. Lo que se mueve, se mueve con
+   transform y opacity; --top-h (alto de la cabecera con su franja) lo pone core.js. */
+
+/* la pelota de #ptr reemplaza al "tirar para recargar" del navegador, que recargaría toda la app. none y no contain:
+   contain quita la recarga pero deja el estiramiento (Android 12+) o el rebote del borde, y se movería toda la página */
+html { overscroll-behavior-y: none; }
+
+/* ---------- migas y "‹ Volver": 48 px de toque sin mover el diseño ---------- */
+/* lo común de todas las migas; la flecha y la sangría son de cada pantalla */
+.crumbs a {
+  display: inline-flex; align-items: center; min-height: 48px; min-width: 48px; margin-top: -12px; margin-bottom: -12px;
+  font-weight: 600; font-size: var(--fs-body);
+  transition: opacity var(--t-toque) linear;
+}
+.crumbs a:active { opacity: .55; }
+
+/* ---------- tirar hacia abajo para actualizar ---------- */
+/* Sale de debajo de la cabecera (z-index menor) y baja con el dedo; core.js pone top, transform y opacity. */
+.ptr {
+  position: fixed; z-index: 19; top: 8px; left: 50%; width: 44px; height: 44px; margin-left: -22px;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--card); box-shadow: var(--shadow); pointer-events: none;
+  opacity: 0; transform: translateY(0);
+  transition: transform var(--t-pantalla) var(--ease-out), opacity var(--t-micro) linear;
+}
+.ptr:empty { display: none; }
+.ptr.tira { transition: none; }
+.ptr.listo { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+.ptr-in { display: block; width: 30px; height: 30px; }
+.ptr svg { display: block; width: 30px; height: 30px; overflow: visible; }
+.ptr-cuero { fill: #fff; stroke: var(--rule-2); stroke-width: 1.4; }
+.ptr-costura { fill: none; stroke: var(--board); stroke-width: 1.3; opacity: .5; }
+.ptr-puntos { fill: none; stroke: var(--board); stroke-width: 1.7; stroke-linecap: round; }
+.ptr.gira svg { animation: ptr-gira .75s linear infinite; }
+@keyframes ptr-gira { to { transform: rotate(360deg); } }
+/* con menos movimiento la pelota no gira sola: se queda quieta mientras llegan los datos */
+@media (prefers-reduced-motion: reduce) { .ptr.gira svg { animation: none; } }
+
+/* ---------- aviso de conexión: píldora arriba, bajo la cabecera ---------- */
+/* Mientras se ve, la página le guarda su alto arriba (--conn-h en el relleno de #view, styles.css; lo pone core.js):
+   no tapa la miga de un juego ni el título de un aviso de error. */
+.conn {
+  position: fixed; z-index: 25; top: calc(var(--top-h, 62px) + var(--s2)); left: 50%;
+  width: max-content; max-width: calc(100% - 2 * var(--s4));
+  pointer-events: none; opacity: 0; transform: translate(-50%, -10px);
+  transition: transform var(--t-pantalla) var(--ease-out), opacity var(--t-micro) linear;
+}
+.conn.in { opacity: 1; transform: translate(-50%, 0); }
+/* con la mini pizarra de un juego a la vista, la píldora baja debajo de ella (su botón mide 48 px o más, crece con
+   la letra): así no tapa el marcador ni el inning. Sin :has (Chrome < 105) queda donde siempre. */
+body:has(> .chapita.on) .conn { top: calc(var(--top-h, 62px) + max(48px, 3rem) + var(--s2)); }
+.conn > span {
+  display: block; padding: 6px 14px; border-radius: 999px; box-shadow: var(--shadow); text-align: center; text-wrap: balance;
+  font: 600 var(--fs-sm)/1.3 var(--font-body);
+}
+.conn.corto .conn-mas { display: none; }
+.conn.off > span { background: var(--ink); color: var(--paper); }
+/* sin red es un aviso: el punto rojo */
+.conn.off > span::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin: 0 var(--s2) 1px 0; border-radius: 50%;
+  background: var(--live); vertical-align: middle;
+}
+.conn.ok > span { background: var(--good); color: var(--paper); }
+
+/* ---------- versión nueva: barra sobre la de secciones ---------- */
+.update {
+  position: fixed; z-index: 28; left: var(--s4); right: var(--s4);
+  bottom: calc(var(--tabbar) + env(safe-area-inset-bottom, 0px) + var(--s3));
+  display: flex; justify-content: center; pointer-events: none;
+  opacity: 0; transform: translateY(var(--s4));
+  transition: transform var(--t-pantalla) var(--ease-out), opacity var(--t-micro) linear;
+}
+.update.in { opacity: 1; transform: none; }
+.update-in {
+  pointer-events: auto; display: flex; align-items: center; gap: var(--s3); width: 100%; max-width: 30rem;
+  padding: 6px 6px 6px var(--s4); border-radius: var(--r-m); box-shadow: var(--shadow);
+  background: var(--ink); color: var(--paper); font: 600 var(--fs-body)/1.3 var(--font-body);
+}
+.update-in span { flex: 1; min-width: 0; }
+.update-btn {
+  flex: none; min-height: 44px; padding: 0 var(--s4); border: 0; border-radius: 10px; cursor: pointer;
+  background: var(--bulb); color: #1a1405; font: 700 var(--fs-body)/1 var(--font-body);
+  transition: transform var(--t-toque) var(--ease-out);
+}
+.update-btn:active { transform: scale(.95); }
+.update-btn:disabled { opacity: .75; cursor: default; }
+
+/* de noche, los avisos van sobre un azul medio (la tinta clara deslumbra) */
+@media (prefers-color-scheme: dark) {
+  .conn.off > span, .update-in { background: var(--rule-2); color: var(--ink); }
+}

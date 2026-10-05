@@ -1,0 +1,193 @@
+/* Pizarra Criolla · css/juegos.css
+   Pantallas de juegos: la lista del día (tarjeta tipo marcador) y el juego (pizarra, mini pizarra fija, repetición,
+   box, jugadas). Usa los tokens y componentes de styles.css; aquí solo lo propio de estas pantallas. */
+
+/* íconos de línea (flechas) y de relleno (play, pausa) */
+.datebar .ic, .gm-back .ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.rp-play .ic-f { width: 18px; height: 18px; fill: currentColor; flex: none; }
+
+/* ---------- barra de fecha ---------- */
+.datebar .db-btn { color: var(--ink); }
+.db-sub > span { white-space: nowrap; }
+.db-sub .db-live { color: var(--live); font-weight: 700; }
+/* "ir a hoy" es texto chico: el área de toque se agranda sin mover nada */
+.db-today { position: relative; font-weight: 600; }
+.db-today::after { content: ""; position: absolute; inset: -14px -10px; }
+
+/* ---------- campeón (días sin juegos, fuera de temporada) ---------- */
+/* "Ver la serie" y "Líderes de la temporada" van en el texto: 44 px de toque sin mover nada (el relleno vertical de
+   un enlace dentro de la línea no cambia el alto de la línea) */
+.champ p a { padding-block: max(0px, calc(22px - .5em)); }
+
+/* ---------- tarjeta de juego tipo marcador ---------- */
+/* izquierda los equipos y las carreras; derecha, tras una línea, la columna fija de estado (crece con la letra) */
+.gcard.gc {
+  display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; gap: 0; padding: 0;
+  border-radius: var(--r-m); overflow: hidden; position: relative;
+}
+.gcard.gc.live { border-color: var(--live); box-shadow: inset 4px 0 0 var(--live), var(--shadow); }
+/* color-mix con var() dentro de border-color: sin soporte (Chrome < 111) quedaría currentColor, un borde oscuro */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .gcard.gc.live { border-color: color-mix(in srgb, var(--live) 45%, var(--rule)); }
+}
+.gc-k {
+  grid-column: 1 / -1; padding: 10px 14px 0 16px;
+  font: 700 var(--fs-cap)/1.3 var(--font-body); text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+}
+.gc-teams { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 10px 14px 10px 16px; min-width: 0; }
+.gc-t { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 30px; }
+.gc-nm { font: 600 var(--fs-lead)/1.2 var(--font-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-nm small { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.gc-sc { position: relative; font: 800 var(--fs-num)/1 var(--font-display); text-align: right; min-width: 1.1em; font-variant-numeric: tabular-nums; }
+.gcard.final .gc-t:not(.win) .gc-nm, .gcard.final .gc-t:not(.win) .gc-sc { color: var(--muted); }
+.gcard.final .gc-t.win .gc-nm { font-weight: 700; }
+/* flechita del ganador, como en los marcadores de la TV */
+.gc-t.win .gc-sc::after {
+  content: ""; position: absolute; right: -11px; top: 50%; margin-top: -5px;
+  border: 5px solid transparent; border-right-color: var(--ink); border-left: 0;
+}
+.gc-st {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 4px; min-width: 0; text-align: center; border-left: 1px solid var(--rule);
+}
+.st-fin { font: 700 var(--fs-sm)/1 var(--font-body); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); }
+.st-fin small, .st-txt small {
+  display: block; margin-top: 4px; font: 600 var(--fs-cap)/1.2 var(--font-body); letter-spacing: 0; text-transform: none; color: var(--muted);
+}
+.st-time { font: 800 var(--fs-num)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.st-time small { margin-left: 2px; font: 700 var(--fs-cap)/1 var(--font-body); color: var(--muted); }
+.st-where, .st-sub {
+  font: 500 var(--fs-cap)/1.2 var(--font-body); color: var(--muted);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: break-word; hyphens: auto;
+}
+.st-txt { font: 700 var(--fs-sm)/1.2 var(--font-body); color: var(--ink-2); }
+.st-txt.warn { color: var(--live); }
+.st-live { display: inline-flex; align-items: center; gap: 5px; font: 700 var(--fs-sm)/1 var(--font-body); color: var(--live); white-space: nowrap; }
+.st-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--live); animation: pulse 1.6s ease-in-out infinite; }
+.gc-st .bases { width: 38px; height: 26px; }
+.st-sit { display: flex; align-items: center; gap: 6px; font: 700 var(--fs-sm)/1 var(--font-body); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.gc-ft {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 8px 14px 9px 16px;
+  border-top: 1px solid var(--rule); font-size: var(--fs-sm); color: var(--ink-2);
+}
+.gc-ft b { font: 700 var(--fs-cap)/1 var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* ---------- pantalla de un juego ---------- */
+/* volver: la flecha queda alineada con el borde y el área de toque mide 48 px */
+.gm-back { display: inline-flex; align-items: center; gap: 2px; min-height: 48px; margin: -12px 0 -12px -12px; padding: 0 12px 0 6px; font-weight: 600; }
+.gm-back:hover { text-decoration: none; }
+@media (hover: hover) { .gm-back:hover span { text-decoration: underline; } }
+
+/* porcentaje de ganar: dos columnas fijas, el nombre no se corre cuando cambia el número */
+.wp-now { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s4); }
+.wp-now p {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0;
+  font-size: var(--fs-body); font-weight: 600; color: var(--ink-2);
+}
+/* el número siempre en su propia línea, bajo el nombre: así "100%" y "0%" se ven igual */
+.wp-now b {
+  flex-basis: 100%; min-width: 2.6em; margin-left: 0;
+  font: 800 var(--fs-num)/1 var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums;
+}
+/* leyenda de la curva: cada entrada va junta con su cuadrito (styles.css); la de las barras no tiene cuadrito y puede
+   partirse si con letra muy grande no cabe en una línea */
+.viz-key > .vk-li { white-space: normal; }
+
+/* la línea de innings: cuando no caben, pasan por debajo de C-H-E (fijas a la derecha, styles.css). js/juegos.js
+   marca la pizarra con .ln-r si queda alguno escondido ahí y con .ln-l si se fueron por la izquierda; un degradado
+   del color de la pizarra los apaga contra ese borde: hay más, se puede deslizar. Junto a C, 24 px más los 2 de su
+   sombra: los 26 que js/juegos.js deja libres (FADE) para que el inning en juego no quede apagado. */
+.board.ln-r .bt-line .rhe:nth-last-child(3)::before {
+  content: ""; position: absolute; top: 0; bottom: 0; right: calc(100% + 2px); width: 24px; pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--board) 85%);
+}
+.board.ln-l .bt-line {
+  -webkit-mask-image: linear-gradient(to right, transparent 4px, #000 24px);
+  mask-image: linear-gradient(to right, transparent 4px, #000 24px);
+}
+
+.rp-play { gap: 8px; }
+
+/* box score: toda la fila de un jugador es tocable (44 px) y se marca al tocarla, también la columna fija del nombre
+   (por eso el selector pesa más que el fondo de .tbl-wrap.sticky en styles.css) */
+.tbl.box tbody tr.tap { height: 2.75rem; cursor: pointer; }
+.tbl-wrap .tbl.box tbody tr.tap:active > * { background-color: var(--paper); background-color: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+@media (hover: hover) { .tbl-wrap .tbl.box tbody tr.tap:hover > * { background-color: color-mix(in srgb, var(--accent) 5%, var(--card)); } }
+
+/* ---------- mini pizarra fija ("chapita") ---------- */
+/* vive en <body>; js/juegos.js le pone la clase .on. Se pega bajo la cabecera con --top-h (alto de la cabecera + la
+   franja), que core.js renueva cuando la cabecera cambia de alto (letra más grande, giro de pantalla). */
+.chapita {
+  position: fixed; z-index: 19; left: 0; right: 0; top: var(--top-h, 62px);
+  display: flex; justify-content: center; padding: 0 var(--s4); pointer-events: none;
+  transform: translateY(-110%); opacity: 0; visibility: hidden;
+  transition: transform var(--t-pantalla) var(--ease-out), opacity var(--t-micro) linear, visibility 0s linear var(--t-pantalla);
+}
+.chapita.on { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
+.ch-in {
+  pointer-events: auto; width: 100%; max-width: 688px; min-height: 48px; margin: 0; padding: 6px 14px; border: 0;
+  display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;
+  background: var(--board); color: var(--chalk); border-radius: 0 0 var(--r-m) var(--r-m); box-shadow: var(--shadow);
+  font: 700 var(--fs-sm)/1 var(--font-body); -webkit-user-select: none; user-select: none;
+  transition: transform var(--t-toque) var(--ease-out);
+}
+.ch-in:active { transform: scale(.98); }
+.ch-in:focus-visible { outline: 2px solid var(--bulb); outline-offset: 2px; }
+.ch-tm { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.ch-tm b { font: 800 var(--fs-h2)/1 var(--font-display); min-width: .8em; color: var(--bulb); font-variant-numeric: tabular-nums; }
+.ch-sep { flex: none; width: 1px; height: 22px; background: rgba(255, 255, 255, .22); }
+.ch-st { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; }
+.ch-st small { color: var(--chalk-dim); font-size: var(--fs-cap); }
+.ch-inn, .ch-txt { color: var(--chalk); }
+.ch-txt { text-transform: uppercase; letter-spacing: .08em; }
+.ch-tag {
+  padding: 2px 7px; border-radius: 999px; background: var(--bulb); color: #1a1405;
+  font: 700 var(--fs-cap)/1.3 var(--font-body); text-transform: uppercase; letter-spacing: .06em;
+}
+.ch-tag-s { display: none; } /* "REP": solo cuando "Repetición" no cabe (abajo) */
+.ch-cnt { margin-left: auto; font: 800 var(--fs-h2)/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.chapita .bases { flex: none; }
+.chapita .bases rect { stroke: var(--chalk-dim); }
+.chapita .bases rect.on { fill: var(--bulb); stroke: var(--bulb); }
+.chapita .outs i { border-color: var(--chalk-dim); }
+.chapita .outs i.on { background: var(--chalk); border-color: var(--chalk); }
+@media (prefers-reduced-motion: reduce) { .chapita { transition: none; } }
+
+/* "Repetición" en la pizarra (no se llama .replay: esa clase es la del bloque de la repetición) */
+.bt-status .pill.rp-pill { background: var(--bulb); border-color: var(--bulb); color: #1a1405; }
+
+/* ---------- letra grande en pantalla angosta ---------- */
+/* La tarjeta: primero el récord baja a su propia línea (un número no se corta nunca: a 360 px «Magallanes 20-22»
+   no cabe en una); más angosta, el récord se va y la columna de estado se angosta; si aún no cabe, la insignia
+   (queda el nombre). */
+.games { container-type: inline-size; }
+@container (max-width: 21rem) {
+  .gc-nm small { display: block; margin: 1px 0 0; font-size: var(--fs-cap); }
+  /* el ancho mínimo de las carreras, de 1.1em a .8em (todavía caben dos cifras): más sitio para el nombre */
+  .gc-sc { min-width: .8em; }
+}
+@container (max-width: 18rem) {
+  .gcard.gc { grid-template-columns: minmax(0, 1fr) 4.5rem; }
+  .gc-nm small { display: none; }
+  /* a la derecha, el aire de la flechita del ganador hasta la raya («12 ◂ |», no «12 ◂|») */
+  .gc-teams { padding-left: 12px; padding-right: 18px; }
+  .gc-t { gap: 8px; }
+  .st-time small { display: block; margin: 2px 0 0; }
+}
+@container (max-width: 15rem) {
+  /* sin la insignia, la fila queda en dos columnas: si no, el nombre caería en la columna de la insignia y las
+     carreras en la del nombre, que se angosta y las empuja hacia la flechita */
+  .gc-t { grid-template-columns: minmax(0, 1fr) auto; }
+  .gc-t .tchip { display: none; }
+}
+/* La chapita: las siglas sin recuadro, menos aire y "REP" en vez de "Repetición", para que la cuenta, las bases y
+   los outs no se corten. */
+.chapita { container-type: inline-size; }
+@container (max-width: 19rem) {
+  .ch-in { gap: 6px; padding: 6px 10px; }
+  .ch-in .tchip { min-width: 0; padding: 0; background: none; color: var(--chalk-dim); }
+  .ch-sep { display: none; }
+  .ch-st { gap: 6px; }
+  .ch-tag-l { display: none; }
+  .ch-tag-s { display: inline; }
+}

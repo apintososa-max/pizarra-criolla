@@ -43,7 +43,11 @@ liga sea igual a su OBP. FIP usa la constante de la LVBP de esa temporada. Nada 
 
 ```
 index.html            la página
-styles.css            diseño (claro y oscuro)
+styles.css            diseño base: colores, letras, componentes comunes y esqueletos (claro y oscuro)
+css/juegos.css        juegos del día, la pizarra y la mini pizarra fija
+css/fichas.css        fichas de equipo y de jugador
+css/tablas.css        tabla de posiciones, líderes y Más
+css/nav.css           aviso de conexión, versión nueva, tirar para actualizar y migas
 js/calc.js            todos los cálculos (funciones puras, se prueban con Node)
 js/api.js             lectura de la API con caché
 js/charts.js          gráficos SVG
@@ -94,6 +98,24 @@ Es una página estática: sirve cualquier hosting con HTTPS. Con GitHub Pages:
 
 La dirección queda pública aunque nadie la conozca. Si se quiere privada hace falta otro hosting
 con contraseña (por ejemplo Cloudflare Pages con Access).
+
+### Publicar una versión nueva
+
+La app se guarda en el teléfono (`sw.js`) y abre desde esa copia; los archivos con `?v=` se sirven de la copia
+sin preguntar a la red. Por eso, **cada vez que se publica**:
+
+1. Subir `VERSION` en `sw.js` (por ejemplo de `'4'` a `'5'`).
+2. Poner ese mismo número en el `?v=` de **todos** los archivos que pide `index.html`: `styles.css`, los
+   `css/*.css` y los `js/*.js`. `VERSION` y los `?v=` siempre van al mismo número.
+3. Si se agregó, se quitó o se renombró un archivo: también en la lista `SHELL` de `sw.js` (los `?v=` de esa
+   lista salen solos de `VERSION`) y en `index.html`.
+4. Si cambian las consultas del calendario o del día en `js/api.js` (o la lista `SCHED_FIELDS`), cambiar igual el
+   prepedido del principio de `index.html`; si no, ese pedido se baja de balde.
+5. Correr `node pruebas/calc.test.js` (debe terminar en "Todo bien.") y probar en la computadora.
+6. Subir los cambios. Quien ya la tiene instalada ve "Hay una versión nueva · Actualizar" la próxima vez que la
+   abra (o al volver a ella, como mucho cada 30 min).
+
+Sin los pasos 1 y 2 la gente se queda con la versión vieja.
 
 ## Ideas para después
 
