@@ -1,0 +1,189 @@
+/* Pizarra Criolla · css/graficos.css
+   Estilos de los dibujos de js/charts.js: curva de probabilidad con sus marcas, mapa de batazos, zona de strike
+   y el campo con la defensa. Colores y letra siempre desde los tokens de styles.css (claro y oscuro). */
+
+/* Tokens: los colores de los equipos (--away dorado, --home azul; probados para daltonismo) y los propios de los
+   gráficos (--g-li, --g-on-away, --g-on-home, --g-field, --g-dirt) viven en styles.css, en claro y en oscuro. */
+/* lo que se arrastra o se toca no selecciona texto ni abre el menú de copiar */
+.gw svg, .gs svg, .gz svg, .gf svg { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.gs svg, .gz svg, .gf svg { overflow: hidden; }
+/* el foco de teclado sobre la pizarra azul: amarillo (el azul de acción no se ve ahí) */
+.board .viz svg:focus-visible, .gz-pan svg:focus-visible, .gf-pan svg:focus-visible { outline-color: var(--bulb); }
+
+/* ---------- probabilidad de ganar ---------- */
+.gw .gw-line { fill: none; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.gw .gw-line.a { stroke: var(--away); }   /* arriba de la línea del 50 %: va ganando el visitante */
+.gw .gw-line.h { stroke: var(--home); }   /* abajo: el home club */
+/* lo que queda después del cursor: más fino y al 70 %, a 2:1 o más contra la tarjeta (la línea dorada da 2,2:1; la de
+   ahora, 3,2:1) */
+.gw .gw-ghost { opacity: .7; }
+.gw .gw-ghost .gw-line { stroke-width: 1.4; }
+.gw .gw-q { stroke-dasharray: 2 3; }      /* 75 % de cada lado */
+.gw .gw-li { fill: var(--g-li); }
+.gw .gw-li.on { fill: var(--ink); }
+.gw .gw-mk.gw-fut { opacity: .7; }
+.gw .gw-run rect { stroke: var(--card); stroke-width: 1; }
+.gw .gw-run.a rect { fill: var(--away); }
+.gw .gw-run.h rect { fill: var(--home); }
+.gw .gw-run text { font: 800 var(--fs-cap) var(--font-body); font-variant-numeric: tabular-nums; }
+.gw .gw-run.a text { fill: var(--g-on-away); }
+.gw .gw-run.h text { fill: var(--g-on-home); }
+.gw .gw-sub { stroke-width: 2.5; stroke-linecap: round; }
+.gw .gw-sub.a { stroke: var(--away); }
+.gw .gw-sub.h { stroke: var(--home); }
+.gw .gw-dot { stroke: var(--card); stroke-width: 1.5; }
+.gw .gw-dot.a { fill: var(--away); }
+.gw .gw-dot.h { fill: var(--home); }
+/* textos sobre la curva: con un borde del color de la tarjeta para que se lean encima del área y la cuadrícula */
+.gw .gw-hr-t, .gw .gw-ann, .gw .viz-end, .gw .viz-lab, .gw .viz-tick {
+  paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round;
+}
+.gw .gw-hr-t { fill: var(--ink); font: 800 var(--fs-cap) var(--font-body); letter-spacing: .03em; }
+.gw .gw-ann { fill: var(--ink-2); font: 600 var(--fs-cap) var(--font-body); }
+.gw .gw-ann-l { stroke: var(--muted); stroke-width: 1; }
+.gw .gw-cur-l { stroke: var(--ink); stroke-width: 1.2; }
+.gw .gw-pill { fill: var(--ink); }
+.gw .gw-pill-t { fill: var(--paper); font: 700 var(--fs-cap) var(--font-body); font-variant-numeric: tabular-nums; }
+.gw .gw-pick .gw-hit { cursor: ew-resize; }
+.gw .gw-drag .gw-hit { cursor: grabbing; }
+/* al abrir: la línea se dibuja de izquierda a derecha (stroke-dashoffset sobre pathLength="1"); lo demás aparece */
+.gw-in .gw-line { stroke-dasharray: 1 1; stroke-dashoffset: 1; animation: gw-trazo 600ms var(--ease-out) 60ms forwards; }
+.gw-in .viz-area, .gw-in .gw-li, .gw-in .gw-mk, .gw-in .gw-cur, .gw-in .gw-end { animation: gw-entra 320ms ease-out 460ms both; }
+@keyframes gw-trazo { to { stroke-dashoffset: 0; } }
+@keyframes gw-entra { from { opacity: 0; } }
+
+/* ---------- mapa de batazos ---------- */
+.gs .gs-fld { fill: var(--g-field); stroke: var(--rule-2); stroke-width: 1.2; }
+.gs .gs-dirt { fill: var(--g-dirt); }
+.gs .gs-foul { stroke: var(--rule-2); stroke-width: 1.2; }
+.gs .gs-dia { fill: none; stroke: var(--rule-2); }
+.gs .gs-bag { fill: var(--card); stroke: var(--rule-2); }
+.gs .gs-pos { fill: var(--muted); font: 600 var(--fs-cap) var(--font-body); letter-spacing: .04em; }
+.gs .gs-p { stroke-width: 2; }
+.gs .gs-p.hit { stroke: var(--card); stroke-width: 1.5; }
+.gs .gs-p.hit.a { fill: var(--away); }
+.gs .gs-p.hit.h { fill: var(--home); }
+.gs .gs-p.out { fill: var(--card); }
+.gs .gs-p.out.a { stroke: var(--away); }
+.gs .gs-p.out.h { stroke: var(--home); }
+/* los batazos que todavía no pasan: al 70 % (2:1 o más contra la grama) y, los huecos, con el aro punteado */
+.gs .gs-p.gs-later { opacity: .7; }
+.gs .gs-p.out.gs-later { stroke-dasharray: 2.5 2; }
+/* las opciones del lector de pantalla (una por batazo): invisibles y sin tocar */
+.gs .gs-o { fill: transparent; pointer-events: none; }
+.gs .gs-ring { fill: none; stroke: var(--ink); stroke-width: 1.8; }
+.gs .gs-lab-bg { fill: var(--card); stroke: var(--rule-2); }
+.gs .gs-lab { fill: var(--ink); font: 700 var(--fs-cap) var(--font-body); }
+.gs .gs-over { cursor: pointer; }
+.gs-key { column-gap: 12px; margin-top: 6px; }
+.gs-k { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; background: var(--ink-2); }
+.gs-k.a { background: var(--away); }
+.gs-k.h { background: var(--home); }
+.gs-k.out { background: transparent; border: 2px solid var(--ink-2); }
+.gs-k.hr { width: 14px; height: 14px; vertical-align: -3px; }
+
+/* ---------- zona de strike (en tiza, sobre la pizarra) ---------- */
+/* fuera de la pizarra la zona trae su propio fondo azul; dentro, se apoya en el de la pizarra */
+.gz-pan { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2); border-radius: var(--r-m); background: var(--board); color: var(--chalk); }
+.board .gz-pan { padding: 0; border-radius: 0; background: none; }
+.gz-svg { display: block; }
+.gz .gz-bg { fill: rgba(0, 0, 0, .2); }
+.gz .gz-box { fill: rgba(255, 255, 255, .05); stroke: var(--chalk); stroke-opacity: .85; stroke-width: 1.4; }
+.gz .gz-grid { fill: none; stroke: var(--chalk); stroke-opacity: .18; }
+.gz .gz-plate { fill: var(--chalk); fill-opacity: .55; }
+.gz .gz-bat-r { fill: var(--chalk); fill-opacity: .08; }
+.gz .gz-bat-t { fill: var(--chalk-dim); font: 700 var(--fs-cap) var(--font-body); letter-spacing: .12em; }
+.gz .gz-vista { fill: var(--chalk-dim); font: 600 var(--fs-cap) var(--font-body); }
+.gz .gz-last { fill: none; stroke: var(--chalk); stroke-opacity: .6; stroke-width: 1.5; }
+/* cada tipo con su forma: bola, círculo vacío; cantado, rojo; tirándole, rojo con anillo; foul, cuadrito amarillo;
+   en juego, rombo blanco; golpeado, cuadrito vacío. El rojo es el de la bandera (--flag-r, igual en los dos temas): el
+   número blanco encima queda a 5,5:1; lleva borde de tiza porque contra el azul solo no llega a 3:1 */
+.gz .gz-n { font: 800 max(var(--fs-cap), var(--gz-n, 12px)) var(--font-display); font-variant-numeric: tabular-nums; }
+.gz .bola .gz-sh { fill: none; stroke: var(--chalk); stroke-width: 1.8; }
+.gz .bola .gz-n, .gz .golpeado .gz-n, .gz .otro .gz-n { fill: var(--chalk); }
+.gz .cantado .gz-sh, .gz .tirandole .gz-sh { fill: var(--flag-r); stroke: var(--chalk); stroke-width: 1.2; }
+.gz .cantado .gz-n, .gz .tirandole .gz-n { fill: #fff; }
+.gz .tirandole .gz-in { fill: none; stroke: #fff; stroke-width: 1.1; }
+.gz .foul .gz-sh { fill: var(--bulb); }
+.gz .foul .gz-n { fill: #1a1405; }
+.gz .enjuego .gz-sh { fill: var(--chalk); }
+.gz .enjuego .gz-n { fill: var(--board); }
+.gz .golpeado .gz-sh { fill: none; stroke: var(--chalk); stroke-width: 1.6; stroke-dasharray: 3 2; }
+.gz .otro .gz-sh { fill: none; stroke: var(--chalk-dim); stroke-width: 1.4; stroke-dasharray: 2 2; }
+.gz .gz-mi { transform-box: fill-box; transform-origin: center; } /* la entrada de un lanzamiento nuevo crece desde su centro */
+.gz .gz-m.far { opacity: .62; }
+.gz .gz-arw { fill: var(--chalk); }
+/* la secuencia en letras y la leyenda (HTML): en tiza sobre la pizarra; si P las saca de ella, en tinta */
+.gz-seq, .gz-key { --zc: var(--ink); --zc-dim: var(--ink-2); --zc-on: var(--card); }
+.board .gz-seq, .gz-pan .gz-seq, .board .gz-key, .gz-pan .gz-key { --zc: var(--chalk); --zc-dim: var(--chalk-dim); --zc-on: var(--board); }
+.gz-seq { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.gz-c {
+  position: relative; flex: none; display: inline-grid; place-items: center; width: 1.75em; height: 1.75em; border-radius: 50%;
+  font: 800 var(--fs-sm)/1 var(--font-display); color: var(--zc); box-sizing: border-box;
+}
+.gz-c b { font-weight: 800; }
+.gz-c.bola { border: 2px solid var(--zc); }
+.gz-c.cantado, .gz-c.tirandole { background: var(--flag-r); color: #fff; box-shadow: 0 0 0 1px var(--zc-dim); }
+.gz-c.tirandole { box-shadow: inset 0 0 0 2px var(--flag-r), inset 0 0 0 3.5px #fff, 0 0 0 1px var(--zc-dim); }
+.gz-c.foul { border-radius: 4px; background: var(--bulb); color: #1a1405; }
+.gz-c.enjuego { border-radius: 3px; background: var(--zc); color: var(--zc-on); transform: rotate(45deg) scale(.86); }
+.gz-c.enjuego b { transform: rotate(-45deg); }
+.gz-c.golpeado { border-radius: 3px; border: 2px dashed var(--zc); }
+.gz-c.otro { border: 1.5px dashed var(--zc-dim); }
+.gz-cnt { margin-left: auto; font: 800 var(--fs-h2)/1 var(--font-display); color: var(--zc); font-variant-numeric: tabular-nums; }
+.gz-key { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: var(--fs-cap); color: var(--zc-dim); }
+.gz-seq + .gz-key { margin-top: 6px; }
+.gz-pan > .gz-seq + .gz-key { margin-top: 0; }
+.gz-key span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+/* en la leyenda, cada ficha con su letra: "B bola · C cantado · S tirándole · F foul · X en juego" */
+.gz-key .gz-c { width: 1.6em; height: 1.6em; font: 800 var(--fs-cap)/1 var(--font-display); border-width: 1.5px; }
+.gz-key .gz-c.tirandole { box-shadow: inset 0 0 0 1.5px var(--flag-r), inset 0 0 0 2.5px #fff, 0 0 0 1px var(--zc-dim); }
+.gz-key .gz-c.enjuego { transform: rotate(45deg) scale(.8); }
+
+/* ---------- el campo en tiza (sobre la pizarra) ---------- */
+.gf-pan { border-radius: var(--r-m); background: var(--board); }
+.board .gf-pan { border-radius: 0; background: none; }
+.gf-svg { display: block; }
+/* "Ver defensa" (angosto): botón de verdad bajo el campo, 24 px o más de alto, en tiza sobre la pizarra (con la letra
+   grande no crece más de lo necesario: el campo de la pizarra no debe alargarla) */
+.gf-btn {
+  display: block; min-height: 24px; margin: 2px 0 0 auto; padding: 2px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .4); background: rgba(255, 255, 255, .08); color: var(--chalk);
+  font: 600 var(--fs-cap)/1.1 var(--font-body);
+}
+.gf-btn[aria-expanded="true"] { background: rgba(255, 255, 255, .16); }
+/* corredores en una sola línea bajo el campo cuando sus fichas no caben (campo chico con letra grande); charts.js corta
+   los apellidos para que quepa y, si aun así no, termina en "…". Interlínea justa: es una sola línea */
+.gf-lista {
+  margin: 2px 0 0; font: 800 var(--fs-cap)/1.15 var(--font-display); letter-spacing: .04em; color: var(--bulb);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gf-btn:focus-visible { outline: 2px solid var(--bulb); outline-offset: 2px; }
+.gf .gf-of { fill: var(--chalk); fill-opacity: .035; stroke: var(--chalk); stroke-opacity: .32; stroke-width: 1.4; }
+.gf .gf-in { fill: var(--chalk); fill-opacity: .05; stroke: var(--chalk); stroke-opacity: .16; }
+.gf .gf-dia { fill: none; stroke: var(--chalk); stroke-opacity: .5; stroke-width: 1.3; }
+.gf .gf-mound { fill: var(--chalk); fill-opacity: .12; stroke: var(--chalk); stroke-opacity: .4; }
+.gf .gf-base { fill: var(--board); stroke: var(--chalk); stroke-opacity: .8; stroke-width: 1.6; }
+.gf .gf-base.on { fill: var(--bulb); stroke: var(--bulb); stroke-opacity: 1; }
+.gf .gf-home { fill: var(--chalk); fill-opacity: .9; }
+.gf .gf-dot { fill: var(--chalk); fill-opacity: .7; }
+/* letra de los tokens, nunca bajo --fs-cap, con un tope según el ancho del campo (--gf-cs y --gf-cd los pone charts.js);
+   angosto, las fichas a --fs-cap */
+.gf .gf-pos text { fill: var(--chalk-dim); font: 500 max(var(--fs-cap), min(var(--fs-sm), var(--gf-cd, 99px))) var(--font-body); paint-order: stroke; stroke: var(--board); stroke-width: 3.5px; stroke-linejoin: round; }
+.gf .gf-run rect { fill: var(--bulb); }
+.gf .gf-run text { fill: #1a1405; font: 800 max(var(--fs-cap), min(var(--fs-sm), var(--gf-cs, 99px))) var(--font-display); letter-spacing: .04em; }
+.gf .gf-bat rect { fill: var(--chalk); }
+.gf .gf-bat text { fill: var(--board); font: 800 max(var(--fs-cap), min(var(--fs-sm), var(--gf-cs, 99px))) var(--font-display); letter-spacing: .04em; }
+.gf .gf-angosto .gf-run text, .gf .gf-angosto .gf-bat text { font-size: var(--fs-cap); }
+/* el último batazo: elevado en curva rayada, línea recta continua, rolata recta punteada */
+.gf .gf-hit-l { fill: none; stroke: var(--bulb); stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 5 4; }
+.gf .gf-hit-l.line { stroke-dasharray: none; }
+.gf .gf-hit-l.ground { stroke-dasharray: .5 5; stroke-width: 2.8; }
+.gf .gf-hit-d { fill: var(--bulb); }
+.gf .gf-hit-t { fill: var(--bulb); font: 700 var(--fs-cap) var(--font-body); paint-order: stroke; stroke: var(--board); stroke-width: 3.5px; stroke-linejoin: round; }
+
+/* sin animaciones con "menos movimiento" (styles.css ya acorta todas; aquí, además, la curva sale completa) */
+@media (prefers-reduced-motion: reduce) {
+  .gw-in .gw-line { stroke-dasharray: none; animation: none; }
+  .gw-in .viz-area, .gw-in .gw-li, .gw-in .gw-mk, .gw-in .gw-cur, .gw-in .gw-end { animation: none; }
+}

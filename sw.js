@@ -7,15 +7,15 @@
    AL PUBLICAR: subir VERSION aquí y el ?v= de todos los archivos en index.html (los dos al mismo número); un archivo
    nuevo va también en SHELL. Sin eso, la gente se queda con la versión vieja: los archivos con ?v= se sirven de la
    copia sin preguntar a la red. Todos los pasos: README.md, "Publicar una versión nueva". */
-const VERSION = '4';
+const VERSION = '5';
 const APP = 'pizarra-app-v' + VERSION;
 const DATA = 'pizarra-datos-v2';
 const FONTS = 'pizarra-fuentes-v1';
 const DATA_MAX = 150, FONTS_MAX = 30;
 const Q = '?v=' + VERSION; // los mismos nombres que pide index.html
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png',
-  'styles.css' + Q, 'css/juegos.css' + Q, 'css/fichas.css' + Q, 'css/tablas.css' + Q, 'css/nav.css' + Q,
-  'js/calc.js' + Q, 'js/api.js' + Q, 'js/charts.js' + Q, 'js/core.js' + Q, 'js/juegos.js' + Q, 'js/tabla.js' + Q,
+  'styles.css' + Q, 'css/juegos.css' + Q, 'css/graficos.css' + Q, 'css/fichas.css' + Q, 'css/tablas.css' + Q, 'css/nav.css' + Q,
+  'js/calc.js' + Q, 'js/api.js' + Q, 'js/charts.js' + Q, 'js/core.js' + Q, 'js/juegos.js' + Q, 'js/juego.js' + Q, 'js/tabla.js' + Q,
   'js/lideres.js' + Q, 'js/equipos.js' + Q, 'js/mas.js' + Q];
 
 self.addEventListener('install', e => {

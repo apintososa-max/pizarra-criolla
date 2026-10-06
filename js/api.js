@@ -57,11 +57,13 @@
   }
 
   // Memoria con límite: lo más viejo sale primero, y de los juegos completos (pesados) solo quedan los últimos 3.
+  // La vigilancia (también feed/live, pero recortada con &fields=) pesa poco y no ocupa uno de esos lugares.
+  const fullFeed = k => k.indexOf('/feed/live?language') > 0 && k.indexOf('&fields=') < 0;
   function memSet(path, o) {
     mem.delete(path);
     mem.set(path, o);
-    if (path.indexOf('/feed/live?language') > 0) {
-      const feeds = [...mem.keys()].filter(k => k.indexOf('/feed/live?language') > 0);
+    if (fullFeed(path)) {
+      const feeds = [...mem.keys()].filter(fullFeed);
       feeds.slice(0, Math.max(0, feeds.length - FEEDS_MAX)).forEach(k => mem.delete(k));
     }
     while (mem.size > MEM_MAX) mem.delete(mem.keys().next().value);
@@ -200,12 +202,26 @@
     'awayScore', 'homeScore', 'matchup', 'batter', 'pitcher', 'id', 'fullName'
   ].join(',');
 
-  // Lo mínimo para vigilar un juego en vivo (~0,6 KB): estado y pizarra. Si algo cambia, se baja el juego completo.
+  // Lo mínimo para vigilar un juego en vivo (~1 KB comprimido): estado, pizarra con la defensa completa y quién viene,
+  // y el turno en curso lanzamiento a lanzamiento (para C.pitchSeq). Si cambia el turno, se baja el juego completo.
+  // La API filtra por nombre a cualquier profundidad: defense también trae su batter/onDeck/inHole (unos bytes).
+  // eventType, player y position: los relevos y emergentes del turno, para pitcherId/batterId de C.pitchSeq.
   const WATCH_FIELDS = [
     'metaData', 'timeStamp', 'gameData', 'status', 'abstractGameState', 'codedGameState', 'detailedState', 'statusCode', 'reason',
     'liveData', 'linescore', 'currentInning', 'currentInningOrdinal', 'inningState', 'inningHalf', 'isTopInning', 'scheduledInnings',
     'outs', 'balls', 'strikes', 'innings', 'num', 'teams', 'home', 'away', 'runs', 'hits', 'errors', 'offense', 'defense',
-    'batter', 'pitcher', 'first', 'second', 'third', 'id', 'fullName'
+    'batter', 'pitcher', 'first', 'second', 'third', 'id', 'fullName',
+    'catcher', 'shortstop', 'left', 'center', 'right', 'onDeck', 'inHole',
+    'plays', 'currentPlay', 'about', 'atBatIndex', 'halfInning', 'inning', 'isComplete', 'count', 'matchup', 'batSide', 'pitchHand',
+    'code', 'playEvents', 'isPitch', 'index', 'details', 'description', 'pitchData', 'coordinates', 'x', 'y',
+    'strikeZoneTop', 'strikeZoneBottom', 'eventType', 'player', 'position'
+  ].join(',');
+
+  // Historial bateador contra lanzador: solo lo que usa C.vsLine (~0,2 KB comprimido, en vez de 0,7). season y gameType:
+  // la fila de cada temporada y fase, para sumar solo las anteriores (o.antes).
+  const VS_FIELDS = [
+    'stats', 'type', 'displayName', 'splits', 'season', 'gameType', 'stat', 'gamesPlayed', 'plateAppearances', 'atBats', 'hits',
+    'doubles', 'triples', 'homeRuns', 'baseOnBalls', 'intentionalWalks', 'strikeOuts', 'hitByPitch', 'sacFlies', 'totalBases'
   ].join(',');
 
   // Las consultas que no son en vivo usan swr: abren al instante con lo guardado y se renuevan en segundo plano.
@@ -244,9 +260,10 @@
       return get(`/api/v1.1/game/${pk}/feed/live?language=es`, { ttl: live ? 8e3 : HOUR, fresh: !!live });
     },
 
-    // Vigilancia liviana de un juego: estado + pizarra.
+    // Vigilancia liviana de un juego: estado, pizarra y el turno en curso (liveData.plays.currentPlay, recortado).
+    // En español, como el feed: las descripciones de los lanzamientos salen igual en los dos.
     watch(pk) {
-      return get(`/api/v1.1/game/${pk}/feed/live?fields=${WATCH_FIELDS}`, { ttl: 8e3, fresh: true });
+      return get(`/api/v1.1/game/${pk}/feed/live?language=es&fields=${WATCH_FIELDS}`, { ttl: 8e3, fresh: true });
     },
 
     winProb(pk, live) {
@@ -256,7 +273,23 @@
     person(id, season) {
       return get(`/api/v1/people/${id}?hydrate=currentTeam,stats(group=[hitting,pitching],type=[season,gameLog,yearByYear],sportId=${SPORT},season=${season})`,
         { ttl: isPast(season) ? DAY : 4 * MIN, swr: true });
-    }
+    },
+
+    // Bateador contra lanzador en las ligas invernales, ya resumido por C.vsLine en {pa, ab, h, d, t, hr, bb, so, avg, ops}
+    // (avg y ops null sin turnos oficiales), o null si nunca se enfrentaron. Las muestras son chicas: decirlo.
+    // o.tipos: los tipos de juego que se piden (por defecto la temporada regular; 'R,F,D,L,W' suma los playoffs de la LVBP).
+    // o.antes y o.tipo: solo lo jugado antes de esa temporada (y de esa fase), para la repetición (ver C.vsLine).
+    async vsPlayer(batterId, pitcherId, o) {
+      if (batterId == null || pitcherId == null) return null;
+      o = o || {};
+      const tipos = Array.isArray(o.tipos) ? o.tipos.join(',') : o.tipos;
+      const r = await get(`/api/v1/people/${batterId}/stats?stats=vsPlayer&opposingPlayerId=${pitcherId}&sportId=${SPORT}&group=hitting` +
+        `${tipos ? '&gameType=' + tipos : ''}&fields=${VS_FIELDS}`, { ttl: 6 * HOUR });
+      const C = root.PC && root.PC.calc;
+      return C && C.vsLine ? C.vsLine(r, { antes: o.antes, tipo: o.tipo }) : null;
+    },
+
+    WATCH_FIELDS // para las pruebas (pruebas/calc.test.js arma la vigilancia de un momento pasado con ?timecode=)
   };
 
   root.PC = root.PC || {};

@@ -55,6 +55,9 @@ todavía se siente "página web":
 
 ## Fase 2: el juego como transmisión (alrededor del 12/10)
 
+**Estado (05/10/2026):** hecha, revisada por 4 especialistas independientes y corregida (versión 5). El contrato entre
+especialistas, las decisiones de la revisión y lo que quedó para después están en `docs/fase2-contrato.md`.
+
 | # | Qué | Datos |
 |---|---|---|
 | 11 | **El turno arriba:** marcador en una línea, cuenta grande con bombillos, diamante con el apellido de cada corredor, duelo con contexto ("hoy 1-2", lanzamientos, en cubierta, presión) | ya se descargan |

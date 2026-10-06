@@ -129,12 +129,6 @@
   const skCard = () => `<div class="sk-card sk-gc"><div class="sk-gc-t">` +
     times(2, i => `<div class="sk-row">${sk('2.25rem', '1.35rem')}${sk(i ? '34%' : '44%', '1.1rem')}${gap}${sk('1.2rem', '1.75rem')}</div>`) +
     `</div><div class="sk-gc-s">${sk('3rem', '1.75rem')}${sk('3.6rem', '.7rem')}</div><div class="sk-gc-f">${sk('60%', '.8rem')}</div></div>`;
-  // la flecha de "‹ Juegos del 2 feb" (la misma de juegos.js)
-  const I_LEFT = '<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>';
-  // fila de un equipo en la pizarra (boardInner en juegos.js): insignia, nombre con el récord y las carreras
-  const skTeam = name => `<div class="bt-row"><span class="bt-abbr">···</span><a class="bt-name">${ghost(name)}<small>${ghost('00-00')}</small></a>` +
-    '<span class="bt-runs">0</span></div>';
-  const skLine = () => `<tr><th>&nbsp;</th>${times(9, () => '<td>&nbsp;</td>')}<td class="rhe r">&nbsp;</td><td class="rhe">&nbsp;</td><td class="rhe">&nbsp;</td></tr>`;
   const SK_TEAMS = ['Magallanes', 'Cardenales', 'Tiburones', 'Leones', 'Águilas', 'Caribes', 'Tigres', 'Bravos'];
   const SK_COLS = ['JJ', 'JG', 'JP', 'AVE', 'Dif', 'Últ. 10', 'Racha', 'Casa'];
   U.skeletons = {
@@ -142,16 +136,7 @@
     juegos: () => `<div class="datebar">${sk('48px', '48px', 'border-radius:12px')}` +
       `<div class="sk-col" style="align-items:center">${sk('70%', '1.25rem')}${sk('35%', '.8rem')}</div>${sk('48px', '48px', 'border-radius:12px')}</div>` +
       `<div class="games">${times(3, skCard)}</div>`,
-    // un juego terminado (lo más común al abrir uno), con el armazón de juegos.js (draw y boardInner): la miga, la pizarra
-    // apagada (estado y estadio, los dos equipos, la cuadrícula de innings vacía), la repetición y el gráfico
-    juego: () => `<nav class="crumbs"><a class="gm-back">${I_LEFT}${ghost('Juegos del 00 oct')}</a></nav>` +
-      `<section class="board-wrap"><div class="board"><p class="bt-status"><span class="pill">Final</span>` +
-      `<span class="bt-venue">${ghost('Estadio Alfonso Chico Carrasquel')}</span></p>${skTeam('Magallanes')}${skTeam('Cardenales')}` +
-      `<div class="bt-line"><table><thead><tr><th></th>${times(9, i => `<th>${i + 1}</th>`)}<th class="rhe">C</th><th class="rhe">H</th><th class="rhe">E</th></tr></thead>` +
-      `<tbody>${skLine()}${skLine()}</tbody></table></div></div></section>` +
-      `<div class="replay"><div class="rp-row">${sk('112px', '44px', 'border-radius:10px')}${sk('auto', '6px', 'flex:1')}</div>` +
-      `<p class="rp-label">${ghost('Jugada 00 de 00 · Baja del 9.º')}</p></div>` +
-      `<div class="sk-col" style="gap:12px">${sk('58%', '1.25rem')}${sk('100%', '13rem', 'border-radius:12px')}</div>`,
+    // (el de un juego, 'juego', lo registra juego.js con la forma de su pizarra)
     // Tabla (tabla.js): título, fases y la tabla de posiciones con sus 8 filas, la leyenda de colores y "Qué significa
     // cada columna", con las mismas clases. Las fases salen en una temporada pasada (o si la ruta trae una); la
     // postemporada (#/tabla/D, L o W) son series y juegos: ahí va una lista.
@@ -419,8 +404,15 @@
       if (v && n.scrollLeft !== v) n.scrollLeft = v;
       if (done) done.add(n);
     }));
+    // Los desplegables van por identidad: uno que ya estaba (aunque haya cambiado de lugar, como en el jugada a jugada en
+    // vivo) queda como la persona lo dejó; uno nuevo toma el estado de su posición solo si el de esa posición ya no está.
     el.querySelectorAll('details').forEach((d, i) => {
-      if (s.nodes && (s.nodes.open[i] === d || (done && done.has(d)))) return;
+      if (done && done.has(d)) return;
+      if (s.nodes) {
+        if (s.nodes.open.indexOf(d) >= 0) return;
+        const old = s.nodes.open[i];
+        if (old && old.isConnected) { if (done) done.add(d); return; }
+      }
       if (s.open[i] != null && d.open !== s.open[i]) d.open = s.open[i];
       if (done) done.add(d);
     });
