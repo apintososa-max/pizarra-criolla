@@ -53,12 +53,14 @@
 <!-- fuentes sin bloquear la pantalla, y solo lo que se usa: Archivo de 400 a 800 y Big Shoulders 800 -->
 <link rel="preload" as="style" crossorigin href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..800&family=Big+Shoulders+Display:wght@800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
 <noscript><link rel="stylesheet" crossorigin href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..800&family=Big+Shoulders+Display:wght@800&display=swap"></noscript>
-<link rel="stylesheet" href="styles.css?v=5">
-<link rel="stylesheet" href="css/juegos.css?v=5">
-<link rel="stylesheet" href="css/graficos.css?v=5">
-<link rel="stylesheet" href="css/fichas.css?v=5">
-<link rel="stylesheet" href="css/tablas.css?v=5">
-<link rel="stylesheet" href="css/nav.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="css/juegos.css?v=6">
+<link rel="stylesheet" href="css/graficos.css?v=6">
+<link rel="stylesheet" href="css/fichas.css?v=6">
+<link rel="stylesheet" href="css/tablas.css?v=6">
+<link rel="stylesheet" href="css/nav.css?v=6">
+<link rel="stylesheet" href="css/app.css?v=6">
+<link rel="stylesheet" href="css/tv.css?v=6">
 </head>
 <body>
 <header class="top">
@@ -69,11 +71,14 @@
   <div class="top-right">
     <a id="live-flag" class="live-flag" href="#/juegos" hidden>En vivo</a>
     <label class="season"><span class="sr">Temporada</span><select id="season"><option>…</option></select></label>
+    <a class="top-buscar" href="#/buscar" aria-label="Buscar jugadores y equipos" title="Buscar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.3"/><path d="M15.2 15.2l5 5"/></svg></a>
   </div>
 </header>
 <div id="conn" class="conn" hidden></div>
 <div id="update" class="update" hidden></div>
 <div id="ptr" class="ptr" aria-hidden="true"></div>
+<!-- aviso corto (PC.toast): siempre en la página, para que el lector diga cada aviso -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <main id="view" tabindex="-1"><div class="skel" role="status"><span class="sr">Cargando…</span><div class="skel-in" aria-hidden="true">
 <!-- esqueleto de la portada mientras arranca la app (el mismo de U.skeletons.juegos en core.js) -->
@@ -97,7 +102,7 @@
    a otra pantalla (un juego compartido, la tabla) no muestra la portada de Juegos sino un esqueleto neutro.
    core.js lo cambia por el esqueleto de la pantalla apenas arranca. */
 (function () {
-  var n = location.hash.replace(/^#\/?/, '').split('/')[0] || 'juegos';
+  var n = location.hash.replace(/^#\/?/, '').split(/[\/?]/)[0] || 'juegos'; // sin la consulta (?t=2023)
   var a = document.querySelector('.tabs a[data-tab="' + n + '"]');
   if (a) { a.classList.add('on'); a.setAttribute('aria-current', 'page'); }
   if (n === 'juegos') return;
@@ -127,15 +132,17 @@
 })();
 </script>
 
-<script src="js/calc.js?v=5"></script>
-<script src="js/api.js?v=5"></script>
-<script src="js/charts.js?v=5"></script>
-<script src="js/core.js?v=5"></script>
-<script src="js/juegos.js?v=5"></script>
-<script src="js/juego.js?v=5"></script>
-<script src="js/tabla.js?v=5"></script>
-<script src="js/lideres.js?v=5"></script>
-<script src="js/equipos.js?v=5"></script>
-<script src="js/mas.js?v=5"></script>
+<script src="js/calc.js?v=6"></script>
+<script src="js/api.js?v=6"></script>
+<script src="js/charts.js?v=6"></script>
+<script src="js/core.js?v=6"></script>
+<script src="js/juegos.js?v=6"></script>
+<script src="js/juego.js?v=6"></script>
+<script src="js/tabla.js?v=6"></script>
+<script src="js/lideres.js?v=6"></script>
+<script src="js/equipos.js?v=6"></script>
+<script src="js/mas.js?v=6"></script>
+<script src="js/buscar.js?v=6"></script>
+<script src="js/comparar.js?v=6"></script>
 </body>
 </html>

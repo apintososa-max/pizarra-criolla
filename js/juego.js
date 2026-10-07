@@ -7,9 +7,13 @@
    - Debajo, las pestañas: Previa (antes del juego) · Resumen · Box · Jugadas · Datos.
    - La curva manda: arrastrarla mueve la chapita (la mini pizarra fija de arriba) a ese momento, y la pizarra al
      soltar; tocar una jugada clave o un batazo del mapa, también.
-   - En vivo se vigila con la consulta liviana: cada lanzamiento repinta bombillos, campo, zona y duelo, y el juego
-     completo se baja solo cuando cambia el turno o el lanzador. Carreras, jonrones, cambios de lanzador y fines de
-     inning salen en una banda amarilla sobre la franja de comentario (fichas y última jugada).
+   - En vivo, cada ciclo pone el juego al día con diffPatch (api.js: feedPatch): baja solo lo que cambió. Cada
+     lanzamiento repinta bombillos, campo, zona y duelo; un turno nuevo recalcula todo. Si diffPatch falla dos veces
+     seguidas, vuelve un rato a la vigilancia liviana de la Fase 2 (el juego completo solo al cambiar el turno).
+     Carreras, jonrones, cambios de lanzador y fines de inning salen en una banda amarilla sobre la franja de comentario
+     (fichas y última jugada).
+   - El modo TV (css/tv.css): el juego a pantalla completa y en horizontal, para tenerlo al lado de la TV, con un
+     retraso ajustable para ir a la par de la transmisión. Sale solo al girar el teléfono, o con su botón.
    Los dibujos (curva, mapa de batazos, zona y campo) son de charts.js y los cálculos de calc.js: si alguno falta o falla,
    esa parte no sale y lo demás sigue. */
 (function (root) {
@@ -28,6 +32,9 @@
   const KEY_PAUSE = 1800; // la repetición se detiene así en las jugadas clave y los jonrones
   const STEP_MS = 900;    // un lanzamiento de la repetición a 1×
   const SPEEDS = [1, 2, 4];
+  const PATCH_RETRY = 5 * 60e3; // diffPatch falló dos veces seguidas: la vigilancia de la Fase 2 por este rato
+  const TV_DELAYS = [0, 15, 30, 45, 60, 90]; // retraso del modo TV, en segundos
+  const TV_KEEP = 130e3; // lo que se guarda del vivo para mostrarlo con retraso (90 s y un margen)
 
   // "1.er lanzamiento", "3.er turno", "2.º lanzamiento"
   const ordM = n => (n === 1 || n === 3 ? `${n}.er` : `${n}.º`);
@@ -38,13 +45,15 @@
   const has = (o, k) => !!o && typeof o[k] === 'function';
   function safe(f, ...a) { try { return f(...a); } catch (e) { console.warn('juego', e); return null; } }
 
-  // Secuencia de lanzamientos de una jugada (calc.js), guardada por jugada.
+  // Secuencia de lanzamientos de una jugada (calc.js), guardada por jugada. diffPatch cambia una jugada por otra nueva
+  // (calc.js: applyPatch), pero por si acaso lo guardado vale solo con la misma cantidad de eventos.
   const seqMemo = new WeakMap();
   function seqOf(play) {
     if (!play || !has(C, 'pitchSeq')) return null;
-    let s = seqMemo.get(play);
-    if (!s) { s = safe(C.pitchSeq, play) || []; seqMemo.set(play, s); }
-    return s;
+    const n = play.playEvents ? play.playEvents.length : 0;
+    let m = seqMemo.get(play);
+    if (!m || m.n !== n) { m = { n, s: safe(C.pitchSeq, play) || [] }; seqMemo.set(play, m); }
+    return m.s;
   }
   // La repetición va lanzamiento a lanzamiento si calc.js sabe la secuencia y el estado a mitad de turno; si no, por jugada.
   const byPitch = () => has(C, 'pitchSeq') && has(C, 'stateAtPitch');
@@ -120,12 +129,12 @@
     if (mine) d.memo.set(key, id);
     return id;
   }
-  // Último batazo de una jugada: {x, y, traj} en la escala de la API.
+  // Último batazo de una jugada: {x, y, traj, event} en la escala de la API (event: un jonrón, el campo lo dice).
   function hitOf(play) {
     const evs = (play && play.playEvents) || [];
     for (let i = evs.length - 1; i >= 0; i--) {
       const h = evs[i].hitData, c = h && h.coordinates;
-      if (c && c.coordX != null && c.coordY != null) return { x: c.coordX, y: c.coordY, traj: h.trajectory || null };
+      if (c && c.coordX != null && c.coordY != null) return { x: c.coordX, y: c.coordY, traj: h.trajectory || null, event: (play.result && play.result.eventType) || null };
     }
     return null;
   }
@@ -141,6 +150,14 @@
     return null;
   }
 
+  // Un campo que se calcula la primera vez que se lee (la chapita, en cada cuadro de un arrastre, no usa la defensa ni
+  // el que viene: así no se calculan).
+  function lazy(o, k, f) {
+    Object.defineProperty(o, k, {
+      enumerable: true, configurable: true,
+      get() { const v = f(); Object.defineProperty(o, k, { value: v, enumerable: true, configurable: true, writable: true }); return v; }
+    });
+  }
   // Lo que muestra la pizarra: el momento de la repetición (jugada d.cursor, lanzamiento d.pitch) o el de ahora.
   function moment(d) {
     const f = d.feed, fls = f.liveData.linescore || {}, ls = d.ls || fls;
@@ -150,7 +167,7 @@
       const m = play.matchup || {}, cnt = play.count || {};
       // quién batea y quién lanza en ese lanzamiento (un relevo o un emergente a mitad de turno ya cuentan: calc.js)
       const bat = st.batter || m.batter || null;
-      return {
+      const M = {
         ls, st, rep: true, k, p, play, end, tot: st.tot,
         inning: st.inning, top: st.top, state: null, bases: st.bases || [], outs: st.outs || 0,
         balls: st.balls != null ? st.balls : end ? cnt.balls || 0 : 0,
@@ -158,10 +175,13 @@
         batter: bat, pitcher: st.pitcher || m.pitcher || null,
         batSide: m.batSide && (!bat || !m.batter || bat.id === m.batter.id) ? m.batSide.code : null,
         pitches: seq ? (end ? seq : seq.slice(0, p + 1)) : null,
-        defense: defenseAt(d, k, st.lim), hit: end ? hitOf(play) : null, onDeck: nextBatter(d, k),
         li: d.wpa && d.wpa.plays[k] ? d.wpa.plays[k].li : null,
         upto: end ? k + 1 : k
       };
+      lazy(M, 'defense', () => defenseAt(d, k, st.lim));
+      lazy(M, 'hit', () => (end ? hitOf(play) : null));
+      lazy(M, 'onDeck', () => nextBatter(d, k));
+      return M;
     }
     const T = ls.teams || { away: {}, home: {} };
     const cp = d.cp || f.liveData.plays.currentPlay || null;
@@ -520,24 +540,30 @@
       return p && p.fullName ? { id: b.id, fullName: p.fullName } : b;
     });
   }
-  // CH.responsive los redibuja al girar el teléfono con lo último que les llegó por update (charts.js lo guarda).
-  // La zona va sin la cuenta (la dicen los bombillos) y sin la leyenda (está en Jugadas, al abrir un turno).
-  function boardCharts(d, board, M) {
-    const A = side(d, 'away'), H = side(d, 'home');
+  // Lo que reciben el campo y la zona en un momento (la pizarra y el modo TV).
+  function chartData(d, M) {
     const bases = basesOf(d, M);
     // el bateador que ya está en base (al cerrar la jugada, o en vivo mientras la API la termina de anotar) no sigue en
     // el plato
     const batter = M.batter && bases.some(b => b && b.id != null && b.id === M.batter.id) ? null : M.batter || null;
+    return {
+      fld: { defense: M.defense || null, bases, batter, batSide: batter ? M.batSide || null : null, lastHit: M.hit || null },
+      zn: { pitches: M.pitches || [], box: d.zbox || null, batSide: M.batSide || null }
+    };
+  }
+  // CH.responsive los redibuja al girar el teléfono con lo último que les llegó por update (charts.js lo guarda).
+  // La zona va sin la cuenta (la dicen los bombillos) y sin la leyenda (está en Jugadas, al abrir un turno).
+  function boardCharts(d, board, M) {
+    const A = side(d, 'away'), H = side(d, 'home');
+    const cd = chartData(d, M);
     const fb = board && board.querySelector('.tn-field');
     // el zurdo va a la derecha del plato: "Ver defensa" pasa a la otra esquina (css/juegos.css)
-    if (fb && fb.classList.contains('bat-z') !== (!!batter && M.batSide === 'L')) fb.classList.toggle('bat-z');
-    chart(d, 'fld', fb,
-      { defense: M.defense || null, bases, batter, batSide: batter ? M.batSide || null : null, lastHit: M.hit || null },
+    if (fb && fb.classList.contains('bat-z') !== (!!cd.fld.batter && M.batSide === 'L')) fb.classList.toggle('bat-z');
+    chart(d, 'fld', fb, cd.fld,
       (box, s) => { const o = { away: A.abbr, home: H.abbr }; return CH.responsive(box, () => CH.field(box, s, o)); },
       (ctl, s) => ctl.update(s));
     const seq = board && board.querySelector('.tn-seq');
-    chart(d, 'zn', board && board.querySelector('.tn-zone'),
-      { pitches: M.pitches || [], box: d.zbox || null, batSide: M.batSide || null },
+    chart(d, 'zn', board && board.querySelector('.tn-zone'), cd.zn,
       (box, z) => {
         const o = { box: z.box, batSide: z.batSide, seqBox: seq || undefined, count: false, legend: false };
         return CH.responsive(box, () => CH.zone(box, z.pitches, o));
@@ -692,12 +718,14 @@
   // plays: las jugadas completas y, en vivo, el turno en curso (solo para sus cambios de lanzador: así sale cuando
   // pasa y no al terminar ese turno). Cada momento sale una sola vez (d.seen; un cambio por su evento, ix: dos relevos
   // en el mismo turno son dos bandas). only: solo ese tipo, y pred: solo los que cumplen (los demás no se marcan).
+  // La clave de un momento (un cambio de lanzador por su evento, ix: dos relevos en el mismo turno son dos bandas).
+  const moKey = m => `${m.type}|${m.k}|${m.ix != null ? m.ix : ''}|${m.title}`;
   function momentsOf(d, fromK, toK, plays, only, pred) {
     if (!has(C, 'moments') || toK <= fromK) return [];
     const list = safe(C.moments, plays || d.done, fromK, toK, d.feed.liveData.linescore, { away: side(d, 'away').abbr, home: side(d, 'home').abbr }) || [];
     return list.filter(m => {
       if ((only && m.type !== only) || (pred && !pred(m))) return false;
-      const key = `${m.type}|${m.k}|${m.ix != null ? m.ix : ''}|${m.title}`;
+      const key = moKey(m);
       if (d.seen.has(key)) return false;
       d.seen.add(key);
       return true;
@@ -719,6 +747,10 @@
   function pushMoments(el, d, list, how) {
     if (!list || !list.length) return;
     if (how !== 'vivo') list.forEach(m => { m.rep = true; });
+    // con el modo TV abierto, la banda sale allá (en vivo, con su retraso: tvLive); lo que sale en la pizarra ya no
+    // vuelve a salir en el modo TV
+    if (tvOn(d)) { if (!tv.live) tvMoments(list, how); return; }
+    if (how === 'vivo') { const seen = tvSeen(d); list.forEach(m => seen.add(moKey(m))); }
     if (how === 'paso') {
       d.mq = [topOf(list, 1)[0]];
       showMoment(el, d, true);
@@ -740,15 +772,19 @@
     clearTimeout(d.mt);
     d.mt = 0;
     const box = el.querySelector('.board .mo-band');
-    const m = d.mq.shift() || null;
+    const m = d.mq.shift() || null, was0 = d.mo;
     d.mo = m;
-    if (!box) { d.mq = []; d.mo = null; return; }
+    if (!box) { d.mq = []; d.mo = null; if (was0) paintChapita(d); return; }
     if (!m) {
       box.classList.remove('in');
       // terminó la banda del final de la repetición: la pizarra de siempre
       if (d.finale) { d.finale = false; d.cursor = null; d.pitch = null; still(el, () => update(el, d)); }
+      else paintChapita(d); // la chapita vuelve a la jugada
       return;
     }
+    // con la pizarra fuera de la vista, el título va en la chapita (y destella si no tenía otro)
+    paintChapita(d);
+    if (!was0 && !m.rep) flashChapita(d);
     const parts = String(m.title || '').split(' · ');
     const ms = m.waited && !now ? WAIT_MS : BAND_MS;
     const was = box.classList.contains('in');
@@ -771,7 +807,7 @@
   // De a uno: lo que llega mientras dice algo espera su turno (2,5 s entre uno y otro, y un respiro de 250 ms para que
   // el lector vea la región antes del texto si la pantalla se acaba de rehacer).
   function say(el, d, txt) {
-    if (!txt) return;
+    if (!txt || tvOn(d)) return; // con el modo TV abierto, habla el modo TV (con su retraso)
     d.srq.push(txt);
     if (!d.srt) sayNext(el, d);
   }
@@ -826,24 +862,26 @@
     }
     return who ? `Turno de ${who}` : '';
   }
-  function chapitaHTML(d) {
-    const M = moment(d);
+  function chapitaHTML(d, M) {
+    M = M || moment(d);
     const tm = s => `<span class="ch-tm" data-p="${s}">${chipSide(d, s, 's inv')}<b>${M.tot[s].r}</b></span>`;
     const inn = M.inning ? `${M.top ? '▲' : '▼'}${M.inning}` : '';
     const bases = U.bases(M.bases).replace('<svg ', '<svg data-p="b" ');
     const outs = `<span data-p="o">${U.outs(M.outs)}</span>`;
     const cnt = M.rep && !d.byPitch ? '' : `<b class="ch-cnt" data-p="c">${Math.min(3, M.balls || 0)}-${Math.min(2, M.strikes || 0)}</b>`;
+    // mientras dura la banda de un momento (que está en la pizarra, fuera de la vista), su título va en lugar de la
+    // jugada: "CARRERA · MAG 4-3"
+    const pl = t => (d.mo && d.mo.title ? `<span class="ch-mo ${esc(d.mo.type || '')}" data-p="mo">${esc(d.mo.title)}</span>` : t ? `<span class="ch-pl" data-p="pl">${esc(t)}</span>` : '');
     let right, two = '';
     if (M.rep) {
       right = `<span class="ch-inn" data-p="in">${inn}</span>${bases}${outs}${cnt}`;
-      two = (d.finale ? '' : `<span class="ch-tag" data-p="tg"><span class="ch-tag-l">Repetición</span><span class="ch-tag-s" aria-hidden="true">REP</span></span>`) + `<span class="ch-pl" data-p="pl">${esc(playShort(M))}</span>`;
+      two = (d.finale ? '' : `<span class="ch-tag" data-p="tg"><span class="ch-tag-l">Repetición</span><span class="ch-tag-s" aria-hidden="true">REP</span></span>`) + pl(playShort(M));
     } else if (d.status === 'live') {
       const stObj = d.st || d.feed.gameData.status || {};
       if (/delayed/i.test(stObj.detailedState || '')) right = `<span class="ch-inn" data-p="in">${inn}</span><span class="ch-txt" data-p="tx">Detenido</span>`;
       else if (M.pause) right = `<span class="ch-inn" data-p="in">${M.state === 'Middle' ? 'Mitad' : 'Fin'} ${ord(M.inning)}</span>`;
       else right = `<span class="ch-inn" data-p="in">${inn}</span>${bases}${outs}${cnt}`;
-      const pl = playShort(M);
-      if (pl) two = `<span class="ch-pl" data-p="pl">${esc(pl)}</span>`;
+      two = pl(playShort(M));
     } else if (d.status === 'final') {
       const ls = M.ls, stObj = d.st || d.feed.gameData.status || {};
       const sub = finalSub(ls.currentInning, ls.scheduledInnings, stObj.reason, /tied/i.test(stObj.detailedState || ''));
@@ -871,8 +909,9 @@
     return chapEl;
   }
   // Lo que dice el lector al llegar a la chapita: el marcador y el momento, y luego qué hace el botón.
-  function chapitaLabel(d) {
-    const M = moment(d), A = side(d, 'away'), H = side(d, 'home');
+  function chapitaLabel(d, M) {
+    M = M || moment(d);
+    const A = side(d, 'away'), H = side(d, 'home');
     const half = M.inning ? halfLabel(M.inning, M.top, M.state).toLowerCase() : '';
     const cnt = M.rep && !d.byPitch ? '' : `, cuenta ${Math.min(3, M.balls || 0)}-${Math.min(2, M.strikes || 0)}`;
     let when = '';
@@ -889,8 +928,9 @@
   function paintChapita(d) {
     if (!chapEl) return;
     if (d.chOn) {
-      paint(chapEl.firstChild, chapitaHTML(d));
-      const lab = chapitaLabel(d);
+      const M = moment(d); // uno solo para las dos (en un arrastre, en cada cuadro)
+      paint(chapEl.firstChild, chapitaHTML(d, M));
+      const lab = chapitaLabel(d, M);
       if (chapEl.firstChild.getAttribute('aria-label') !== lab) chapEl.firstChild.setAttribute('aria-label', lab);
     }
     if (chapEl.classList.contains('on') !== !!d.chOn) chapEl.classList.toggle('on', !!d.chOn);
@@ -1332,6 +1372,7 @@
     const go = () => { if (el.isConnected) moveInd(el, instant); };
     requestAnimationFrame(instant ? () => setTimeout(go, 0) : go);
     if (d.stale.has(k)) paintTab(el, d, k);
+    if (k === 'resumen' && !instant) wpCatchUp(d); // la curva, al día
   }
 
   // ---------- la repetición, lanzamiento a lanzamiento ----------
@@ -1517,6 +1558,7 @@
     }
     paintChapita(d);
     announce(el, d);
+    if (tvOn(d) && !tv.live) tvRepShow(d); // la repetición en el modo TV
   }
 
   // Lo que obliga a rehacer la pantalla: cambia el estado (por jugar, en vivo, final), aparece la curva o la primera
@@ -1587,6 +1629,541 @@
     paintBoard(el, d);
   }
 
+  // ---------- modo TV: el juego a pantalla completa, para tenerlo al lado de la TV ----------
+  // Sale solo al girar el teléfono (en horizontal) o con su botón; se sale con "Salir", Escape o Atrás (si se abrió con
+  // un toque, suma un paso en el historial). Arriba el estado, el retraso y "Salir"; en tres columnas el marcador con
+  // los bombillos y el campo, la zona con su secuencia, y el duelo con la última jugada (la banda de los momentos va
+  // encima de ella); abajo una franja de la curva. Números grandes: se lee a metro y medio. Mantiene la pantalla
+  // encendida (Wake Lock, si existe).
+  // En vivo, cada cambio del juego deja un cuadro (d.hist: el HTML y los datos de los dibujos de ese momento) y el modo
+  // TV muestra el último que ya cumplió su retraso. El retraso se cuenta desde la hora del dato en la API (más la demora
+  // mínima con que llegan los datos, que absorbe la hora del teléfono): todos los momentos van igual de atrasados aunque
+  // el refresco sea cada 12 s. Se guardan los últimos ~2 minutos: al abrir el modo TV o al subir el retraso se puede
+  // mostrar lo de hace 90 s. En la repetición (un juego terminado) va al momento de la repetición, sin retraso, con su
+  // botón de seguir y pausa.
+  const tv = { el: null, d: null, live: false, auto: false, dismissed: false, paso: false, ctl: {}, broken: {}, shown: null, timer: 0,
+    mq: [], mo: null, mt: 0, seen: new Set(), srq: [], srt: 0, srAt: 0, lastTurn: null, lock: null, quietos: [], opener: null, off: [] };
+  const tvOn = d => !!tv.el && !!d && tv.d === d;
+  // Los momentos que ya salieron (en la pizarra o en el modo TV), por juego: abrir y cerrar el modo TV, o girar el
+  // teléfono, no los repite.
+  function tvSeen(d) {
+    if (tv.seenPk !== d.pk) { tv.seen = new Set(); tv.seenPk = d.pk; }
+    return tv.seen;
+  }
+  const tvAllowed = d => !!d && !!d.feed && (d.status === 'live' || (d.status === 'final' && d.done.length > 0));
+  const tvDelay = () => { const s = +PC.state.prefs.tvRet; return TV_DELAYS.indexOf(s) >= 0 ? s : 0; };
+  // Lo de ahora (sin el cursor de la repetición), para los cuadros del vivo. Un juego terminado no tiene "ahora" con
+  // turno: va su última jugada, como la banda del final (d.finale).
+  function withLive(d, fn) {
+    const c = d.cursor, p = d.pitch, fi = d.finale, end = d.status === 'final' && d.done.length > 0;
+    d.cursor = end ? d.done.length - 1 : null; d.pitch = null; d.finale = end;
+    try { return fn(); } finally { d.cursor = c; d.pitch = p; d.finale = fi; }
+  }
+  const I_TV = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="12" rx="2"/><path d="M8.5 21h7M12 17.5V21"/></svg>';
+  // compartir: el mismo ícono de las fichas (equipos.js), el de Android
+  const I_SHARE = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="17.5" cy="5.5" r="2.4"/><circle cx="6.5" cy="12" r="2.4"/>' +
+    '<circle cx="17.5" cy="18.5" r="2.4"/><path d="M8.6 10.8l6.8-4M8.6 13.2l6.8 4"/></svg>';
+  const I_X = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
+  const I_RELOJ = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 3h5"/></svg>';
+
+  // El estado arriba: "EN VIVO · Alta del 5.º", "REPETICIÓN · Baja del 9.º", "FINAL".
+  function tvStatusHTML(d, M) {
+    const stObj = d.st || d.feed.gameData.status || {}, ls = M.ls || {};
+    let pill;
+    if (M.rep && !d.finale) pill = '<span class="pill rp-pill">Repetición</span>';
+    else if (d.status === 'final') pill = `<span class="pill fin">${esc(finalText(ls.currentInning, ls.scheduledInnings || 9, stObj.reason, /tied/i.test(stObj.detailedState || '')))}</span>`;
+    else if (/delayed/i.test(stObj.detailedState || '')) pill = `<span class="pill warn">${esc(C.statusText(stObj) || 'Juego detenido')}</span>`;
+    else if (d.status === 'live') pill = '<span class="pill live"><i aria-hidden="true"></i>En vivo</span>';
+    else pill = `<span class="pill warn">${esc(C.statusText(stObj) || '')}</span>`;
+    const half = M.inning && !(d.status === 'final' && !M.rep) ? halfLabel(M.inning, M.top, M.state) : '';
+    return `${pill}${half ? ` <b class="tv-inn">${esc(half)}</b>` : ''}${M.pause || !half ? '' : outsSr(M.outs)}`;
+  }
+  // El marcador grande (las carreras ruedan, como en la pizarra).
+  function tvScoreHTML(d, M) {
+    const A = side(d, 'away'), H = side(d, 'home'), r = s => M.tot[s].r;
+    const lead = r('away') > r('home') ? 'away' : r('home') > r('away') ? 'home' : null;
+    const n = s => `<span class="sc-r flip tv-r${lead === s ? ' lead' : ''}" data-p="r${s[0]}" data-k="r${s[0]}" data-v="${r(s)}" aria-hidden="true"><span class="n">${r(s)}</span></span>`;
+    // con dos cifras las carreras van un poco más chicas: el marcador cabe a lo ancho (css/tv.css)
+    return `<div class="tv-sc${r('away') > 9 || r('home') > 9 ? ' dos' : ''}" data-p="sc"><span class="sr" data-p="sr">${esc(A.short)} ${r('away')}, ${esc(H.short)} ${r('home')}</span>` +
+      `<span class="bt-abbr" aria-hidden="true" data-p="ta">${esc(A.abbr)}</span>${n('away')}<span class="tv-dash" aria-hidden="true" data-p="dh">–</span>` +
+      `${n('home')}<span class="bt-abbr" aria-hidden="true" data-p="th">${esc(H.abbr)}</span></div>`;
+  }
+  // Los bombillos B-S-O y la cuenta en número (de lejos se lee mejor que los bombillos).
+  function tvCountHTML(d, M) {
+    const cnt = (M.rep && !d.byPitch) || M.pause || (d.status === 'final' && !M.rep) ? ''
+      : `<b class="tv-cnt" data-p="c"><span class="sr">Cuenta </span>${Math.min(3, M.balls || 0)}-${Math.min(2, M.strikes || 0)}</b>`;
+    return bulbsHTML(d, M) + cnt;
+  }
+  // Las fichas del modo TV: el que viene y la presión (el historial entre los dos se busca en la pantalla de siempre).
+  function tvCtxHTML(d, M) {
+    const cx = [], closed = M.end && M.outs >= 3;
+    if (M.onDeck && !M.pause && !closed && (!M.batter || M.onDeck.id !== M.batter.id)) cx.push(`<span class="cx" data-p="od">${M.end ? 'Viene' : 'En cubierta'} <b>${esc(surname(M.onDeck.fullName))}</b></span>`);
+    if (M.li != null && M.li >= 1) cx.push(`<span class="cx${M.li >= 1.5 ? ' hot' : ''}" data-p="li">Presión <b>×${F.dec1(M.li)}</b></span>`);
+    return cx.length ? `<div class="tn-ctx" data-p="cx">${cx.join('')}</div>` : '';
+  }
+  // Lo que oye el lector cuando cambia el turno en el modo TV.
+  function tvSrText(d, M) {
+    const A = side(d, 'away'), H = side(d, 'home');
+    const score = `${A.short} ${M.tot.away.r}, ${H.short} ${M.tot.home.r}.`;
+    if (d.status === 'final' && !M.rep) return `Final. ${score}`;
+    const when = M.inning ? `${halfLabel(M.inning, M.top, M.state)}${M.pause ? '' : `, ${outsTxt(M.outs)}`}.` : '';
+    const lp = M.end && M.play && M.play.result && M.play.result.description ? C.cleanEs(M.play.result.description) : '';
+    const now = M.pause ? (M.batter ? `Abre ${M.batter.fullName}.` : '') : !M.end && M.batter ? `Al bate ${M.batter.fullName}.` : '';
+    return [score, when, lp, now].filter(Boolean).join(' ');
+  }
+  // La curva de un vistazo: lo que se ve de la probabilidad de ganar (hasta el momento) y el largo del eje.
+  function tvWp(d) {
+    const plays = wpPlays(d);
+    if (!plays.length) return null;
+    const all = d.wpa.plays.length;
+    return { v: plays.map(p => p.after), first: plays[0].before, total: d.status === 'final' ? all : Math.max(all + 8, 78) };
+  }
+  // Un cuadro: todo lo que muestra el modo TV en un momento.
+  function tvFrame(d, M) {
+    const cd = chartData(d, M);
+    // el duelo sin enlaces: el modo TV es para mirar (un enlace sacaría del juego)
+    const du = duelHTML(d, M).replace(/<a class="plink" href="[^"]*">([^<]*)<\/a>/g, '<span class="plink">$1</span>');
+    const f = {
+      st: tvStatusHTML(d, M), sc: tvScoreHTML(d, M), cu: tvCountHTML(d, M), du, cx: tvCtxHTML(d, M), lp: lastHTML(d, M),
+      fld: cd.fld, zn: cd.zn, wp: tvWp(d), sr: tvSrText(d, M), mo: [],
+      turn: [M.rep ? 'r' : 'v', M.inning, M.top, M.state, M.outs, M.tot.away.r, M.tot.home.r, M.batter && M.batter.id, M.pitcher && M.pitcher.id, M.end ? 1 : 0].join('|')
+    };
+    f.key = [f.st, f.sc, f.cu, f.du, f.cx, f.lp, JSON.stringify(cd), f.wp ? f.wp.v.length + ':' + f.wp.v[f.wp.v.length - 1] : ''].join('#');
+    return f;
+  }
+
+  // ---- el vivo con retraso ----
+  // Cuándo se muestra un cuadro: su hora en la API más la demora mínima observada, más el retraso; nunca antes de que
+  // llegue. Sin hora de la API, desde que llegó.
+  const dueOf = (d, f, D) => (f.ts == null || d.lag == null ? f.at + D : Math.max(f.at, f.ts + d.lag + D));
+  // Un cambio del vivo: se guarda su cuadro (con los momentos que trajo) y, con el modo TV abierto, se mira qué toca.
+  // ts: la hora del dato que trajo el cambio (con la vigilancia de la Fase 2, la de la vigilancia; si no, la del juego).
+  function tvLive(d, list, ts) {
+    if (!d.hist || !d.feed || !(d.status === 'live' || tvOn(d))) return;
+    const f = withLive(d, () => tvFrame(d, moment(d)));
+    f.at = Date.now();
+    f.ts = ts != null ? ts : tsMs(d.feed);
+    f.mo = list && list.length ? list.slice() : [];
+    const H = d.hist, last = H[H.length - 1];
+    if (last && last.key === f.key && !f.mo.length) return; // nada nuevo a la vista
+    // la demora mínima entre la hora del dato y su llegada (sin el primer cuadro, que puede ser de hace rato)
+    if (f.ts != null && H.length) { const lag = f.at - f.ts; d.lag = d.lag == null ? lag : Math.min(d.lag, lag); }
+    H.push(f);
+    // fuera lo viejo, salvo el cuadro que se está mostrando y lo que viene después
+    const cut = f.at - TV_KEEP, keep = tvOn(d) && tv.shown ? H.indexOf(tv.shown) : H.length - 1;
+    let i = 0;
+    while (i < H.length - 1 && i < keep && H[i].at < cut) i++;
+    if (i) H.splice(0, i);
+    if (tvOn(d) && tv.live) tvPump();
+  }
+  // El cuadro que ya cumplió su retraso (el último), y el reloj para el siguiente.
+  function tvPump() {
+    clearTimeout(tv.timer);
+    tv.timer = 0;
+    const d = tv.d;
+    if (!tv.el || !tv.live || !d || !d.hist.length) return;
+    const H = d.hist, now = Date.now(), D = tvDelay() * 1000;
+    // el último que ya cumplió su retraso (al subir el retraso puede ser uno anterior al que se ve: se vuelve atrás)
+    let k = -1;
+    for (let i = 0; i < H.length; i++) if (dueOf(d, H[i], D) <= now) k = i;
+    const j = tv.shown ? H.indexOf(tv.shown) : -1;
+    // nada tan viejo: al abrir, lo más viejo que hay; si ya se ve algo, se queda
+    const pick = k >= 0 ? k : j < 0 ? 0 : -1;
+    if (pick >= 0 && pick !== j) {
+      // los momentos de lo que se salta van a la cola de la banda (como en vivo: esperan 2 como mucho); al abrir, los de
+      // lo que ya pasó no salen
+      const list = [];
+      if (j >= 0) for (let i = j + 1; i <= pick; i++) list.push(...H[i].mo);
+      tvShow(d, H[pick], !!tv.shown);
+      tvMoments(list, 'vivo');
+    }
+    const nx = H[k + 1];
+    if (nx) tv.timer = setTimeout(tvPump, Math.max(60, dueOf(d, nx, D) - now + 20));
+  }
+  // La repetición en el modo TV: el momento de la repetición, al instante (sin empezar, el final del juego).
+  function tvRepShow(d) {
+    if (!tvOn(d)) return;
+    const f = d.cursor == null ? withLive(d, () => tvFrame(d, moment(d))) : tvFrame(d, moment(d));
+    tvShow(d, f, d.timer !== 0 && !!tv.shown);
+    const b = tv.el.querySelector('.tv-play'), l = tv.el.querySelector('.tv-rpl');
+    if (b) { const s = d.timer ? 'pausa' : d.cursor == null || d.finale ? 'repetir' : 'seguir'; if (b.dataset.s !== s) { b.dataset.s = s; b.innerHTML = rpButton(s); } }
+    if (l) { const t = rpText(d); if (l.textContent !== t) l.textContent = t; }
+  }
+  // Pinta un cuadro (anim: con la pizarra viva, si cambió algo).
+  function tvShow(d, f, anim) {
+    const T = tv.el;
+    if (!T || !f) return;
+    const before = anim && !reduced() ? valuesOf(T) : null;
+    const was = tv.shown;
+    tv.shown = f;
+    paint(T.querySelector('.tv-st'), f.st);
+    paint(T.querySelector('.tv-score'), f.sc);
+    paint(T.querySelector('.tv-cuenta'), f.cu);
+    paint(T.querySelector('.tv-duel'), f.du);
+    paint(T.querySelector('.tv-cxs'), f.cx);
+    paint(T.querySelector('.tv-lp'), f.lp);
+    if (before) markChanges(T, before);
+    tvCharts(d, f);
+    tvStrip(d, f.wp);
+    tvFit();
+    // el lector: el estado cuando cambia el turno (los momentos los dice la banda)
+    if (was && f.turn !== tv.lastTurn && !f.mo.length) tvSay(f.sr);
+    tv.lastTurn = f.turn;
+  }
+  // La franja de comentario, entera o nada: si las fichas y la última jugada no caben (la letra grande), primero se
+  // esconden las fichas y después la jugada; nunca queda una línea cortada a la mitad. Una medida por cuadro.
+  function tvFit() {
+    const T = tv.el, com = T && T.querySelector('.tv-com');
+    if (!com) return;
+    const cx = com.querySelector('.tv-cxs'), lp = com.querySelector('.tv-lp');
+    cx.hidden = false;
+    lp.hidden = false;
+    const gap = parseFloat(getComputedStyle(com).rowGap) || 0;
+    const fits = () => {
+      const hs = [cx, lp].filter(e => !e.hidden).map(e => e.offsetHeight).filter(h => h > 0);
+      return hs.reduce((a, h) => a + h, 0) + Math.max(0, hs.length - 1) * gap <= com.clientHeight + 0.5;
+    };
+    if (!fits()) cx.hidden = true;
+    if (!fits()) lp.hidden = true;
+  }
+  // El campo y la zona del modo TV: se crean una vez y después solo se actualizan.
+  function tvCharts(d, f) {
+    const T = tv.el, A = side(d, 'away'), H = side(d, 'home');
+    const one = (name, box, make, upd) => {
+      if (!box || tv.broken[name]) return;
+      try {
+        if (!tv.ctl[name]) tv.ctl[name] = make() || null;
+        else upd(tv.ctl[name]);
+      } catch (e) {
+        console.warn('juego: modo TV', name, e);
+        tv.broken[name] = true;
+        box.hidden = true;
+      }
+    };
+    const fb = T.querySelector('.tv-field');
+    // el campo entero con la defensa (sin "Ver defensa": aquí no hay botones de más)
+    if (has(CH, 'field')) one('fld', fb, () => { const s = f.fld, o = { away: A.abbr, home: H.abbr, narrow: false }; return CH.responsive(fb, () => CH.field(fb, s, o)); }, c => c.update(f.fld));
+    const zb = T.querySelector('.tv-zone'), sq = T.querySelector('.tv-seq');
+    if (d.byPitch && has(CH, 'zone')) {
+      // las opciones, una sola vez: al redibujar (girar) charts.js se queda con lo último que llegó por update
+      one('zn', zb, () => { const ps = f.zn.pitches, o = { box: f.zn.box, batSide: f.zn.batSide, seqBox: sq || undefined, count: false, legend: false }; return CH.responsive(zb, () => CH.zone(zb, ps, o)); },
+        c => c.update(f.zn.pitches, { box: f.zn.box, batSide: f.zn.batSide }));
+    } else if (!T.classList.contains('sin-zona')) T.classList.add('sin-zona'); // sin lanzamiento a lanzamiento: el campo solo
+  }
+  // La franja de la curva: dorada arriba (va ganando el visitante) y azul abajo (el home club), como en el Resumen; a
+  // la derecha, el que va arriba con su %. La dibuja aquí (SVG estirado a lo ancho): es una pieza del modo TV.
+  function tvStrip(d, w) {
+    const box = tv.el && tv.el.querySelector('.tv-wp');
+    if (!box) return;
+    const key = w ? `${w.v.length}|${w.v[w.v.length - 1]}|${w.total}` : '';
+    if (box._k === key) return;
+    box._k = key;
+    const A = side(d, 'away'), H = side(d, 'home');
+    const keyHTML = `<p class="tv-wp-k" aria-hidden="true"><span>${esc(A.abbr)}</span><span>${esc(H.abbr)}</span></p>`;
+    if (!w) {
+      box.setAttribute('aria-label', 'Probabilidad de ganar: todavía sin jugadas');
+      box.innerHTML = keyHTML + '<svg class="tv-wp-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
+        '<line x1="0" x2="1000" y1="50" y2="50" class="tv-wp-base" vector-effect="non-scaling-stroke"/></svg>';
+      return;
+    }
+    const x = i => ((i / w.total) * 1000).toFixed(1), y = v => (+v).toFixed(1);
+    let line = `M0 ${y(w.first)}`;
+    w.v.forEach((v, i) => { line += `L${x(i + 1)} ${y(v)}`; });
+    const end = x(w.v.length), area = `${line}L${end} 50L0 50Z`, last = w.v[w.v.length - 1];
+    const fav = last < 50 ? ['away', A, Math.round(100 - last)] : ['home', H, Math.round(last)];
+    box.setAttribute('aria-label', `Probabilidad de ganar: ${fav[1].short} ${fav[2]} %`);
+    box.innerHTML = keyHTML +
+      `<svg class="tv-wp-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">` +
+      '<defs><clipPath id="tvwp-a"><rect width="1000" height="50"/></clipPath><clipPath id="tvwp-h"><rect y="50" width="1000" height="50"/></clipPath></defs>' +
+      `<path d="${area}" class="tv-wp-area away" clip-path="url(#tvwp-a)"/><path d="${area}" class="tv-wp-area home" clip-path="url(#tvwp-h)"/>` +
+      '<line x1="0" x2="1000" y1="50" y2="50" class="tv-wp-base" vector-effect="non-scaling-stroke"/>' +
+      `<path d="${line}" class="tv-wp-line away" clip-path="url(#tvwp-a)" vector-effect="non-scaling-stroke"/><path d="${line}" class="tv-wp-line home" clip-path="url(#tvwp-h)" vector-effect="non-scaling-stroke"/></svg>` +
+      `<p class="tv-wp-n" aria-hidden="true"><span class="k ${fav[0]}"></span>${esc(fav[1].abbr)} <b>${fav[2]}%</b></p>`;
+  }
+
+  // ---- la banda de los momentos en el modo TV (como la de la pizarra: 8 s, y 4 s las que esperaron) ----
+  function tvMoments(list, how) {
+    if (!tv.el || !list || !list.length) return;
+    // en vivo, cada momento una vez (al subir el retraso se vuelve a pasar por cuadros ya vistos); en la repetición ya
+    // vienen contados (d.seen, que se olvida en cada salto)
+    const fresh = how !== 'vivo' ? list : list.filter(m => {
+      const key = moKey(m);
+      if (tv.seen.has(key)) return false;
+      tv.seen.add(key);
+      return true;
+    });
+    if (!fresh.length) return;
+    if (how === 'paso') { tv.mq = [topOf(fresh, 1)[0]]; tvBand(true); return; }
+    fresh.forEach(m => { m.waited = !!tv.mo || tv.mq.length > 0; tv.mq.push(m); });
+    if (tv.mo) tv.mq = topOf(tv.mq, 2);
+    else if (tv.mq.length > 3) tv.mq = [tv.mq[0]].concat(topOf(tv.mq.slice(1), 2));
+    if (!tv.mo) tvBand();
+  }
+  function tvBand(now) {
+    clearTimeout(tv.mt);
+    tv.mt = 0;
+    const box = tv.el && tv.el.querySelector('.tv-band');
+    const m = tv.mq.shift() || null;
+    tv.mo = m;
+    if (!box) { tv.mq = []; tv.mo = null; return; }
+    if (!m) { box.classList.remove('in'); return; }
+    const parts = String(m.title || '').split(' · '), ms = m.waited && !now ? WAIT_MS : BAND_MS;
+    const was = box.classList.contains('in');
+    box.className = `mo-band tv-band ${m.type || ''}${was ? ' in' : ''}`;
+    box.innerHTML = `<p class="mo-h"><b class="mo-t">${esc(parts[0])}</b>${parts.length > 1 ? `<span class="mo-s">${esc(parts.slice(1).join(' · '))}</span>` : ''}</p>` +
+      (m.text ? `<p class="mo-d">${esc(m.text)}</p>` : '') + `<span class="mo-bar"><i style="animation-duration:${ms}ms"></i></span>`;
+    // que el texto no se monte en la barrita: si no cabe en 2 líneas, en 1; si tampoco, solo el título
+    for (const c of ['corta', 'cortisima']) {
+      if (box.scrollHeight <= box.clientHeight + 1) break;
+      box.classList.remove('corta');
+      box.classList.add(c);
+    }
+    if (!was) requestAnimationFrame(() => { if (tv.mo === m) box.classList.add('in'); });
+    const d = tv.d;
+    if (!m.rep || (((d && d.speed) || 1) === 1 && SAY_REP.has(m.type))) tvSay([parts.join(', '), m.text || ''].filter(Boolean).join('. '));
+    tv.mt = setTimeout(() => tvBand(), ms);
+  }
+  // El lector en el modo TV: de a uno, con 2,5 s entre uno y otro (como say).
+  function tvSay(txt) {
+    if (!txt || !tv.el) return;
+    tv.srq.push(txt);
+    if (!tv.srt) tvSayNext();
+  }
+  function tvSayNext() {
+    tv.srt = setTimeout(() => {
+      tv.srt = 0;
+      const t = tv.srq.shift(), box = tv.el && tv.el.querySelector('#tv-sr');
+      if (t == null || !box) { tv.srq = []; return; }
+      box.textContent = t;
+      tv.srAt = Date.now();
+      if (tv.srq.length) tvSayNext();
+    }, Math.max(250, tv.srAt + 2500 - Date.now()));
+  }
+
+  // ---- abrir y cerrar ----
+  const tvActivated = () => !navigator.userActivation || navigator.userActivation.isActive;
+  function tvShell(d) {
+    const ret = tvDelay();
+    const ctl = tv.live
+      ? `<div class="tv-ret" role="group" aria-label="Retraso, para ir a la par de la TV"><span class="tv-ret-l" aria-hidden="true">${I_RELOJ}<span class="tv-ret-lt">Retraso</span></span>` +
+        TV_DELAYS.map(s => `<button type="button" data-ret="${s}" aria-pressed="${s === ret}"><span aria-hidden="true">${s}</span><span class="sr">${s ? `${s} segundos` : 'sin retraso'}</span></button>`).join('') +
+        '<span class="tv-ret-u" aria-hidden="true">s</span></div>'
+      : `<div class="tv-rp"><button type="button" class="btn tv-play" data-s="">${rpButton('repetir')}</button><span class="tv-rpl" aria-hidden="true"></span></div>`;
+    // Cada pieza en su lugar de la cuadrícula (css/tv.css): el campo y la zona dentro de una caja que mide lo que le
+    // toca, para que el dibujo quepa también de alto.
+    return `<div class="tv-bar"><p class="tv-st"></p><span class="tv-aviso" role="status" hidden></span>${ctl}<button type="button" class="tv-x" aria-label="Salir del modo TV">${I_X}<span class="tv-x-t" aria-hidden="true">Salir</span></button></div>` +
+      '<div class="tv-a"><div class="tv-score"></div><div class="tv-fld"><div class="tv-field"></div></div></div>' +
+      '<div class="tv-b"><div class="tv-cuenta"></div><div class="tv-zn"><div class="tv-zone"></div></div><div class="tv-seq"></div></div>' +
+      '<div class="tv-c"><div class="tv-duel"></div><div class="tv-com"><div class="tv-cxs"></div><div class="tv-lp"></div><div class="mo-band tv-band" aria-hidden="true"></div></div></div>' +
+      '<div class="tv-wp" role="img"></div><p class="sr" id="tv-sr" aria-live="polite"></p>';
+  }
+  // Si lo que se ve es viejo, se dice en la barra: "Sin conexión" (api.js lo sabe), o "Sin datos nuevos hace N min" si
+  // pasaron más de 45 s sin un dato al día con el juego en vivo. El aviso toma el lugar de la píldora "En vivo" (tv.css);
+  // en una pantalla angosta se ve corto ("Sin señal", "Hace N min") y el lector oye la frase entera. Se mira cada 5 s,
+  // cuando cambia la conexión y después de cada ciclo del vivo.
+  function tvAviso() {
+    const T = tv.el, d = tv.d;
+    if (!T || !d || !d.feed) return;
+    let txt = '', corto = '', sr = '';
+    if (tv.live && d.status === 'live') {
+      if (API.status && API.status.online === false) { txt = sr = 'Sin conexión'; corto = 'Sin señal'; }
+      else {
+        const s = (Date.now() - freshOf(d)) / 1000;
+        if (s > 45) {
+          const m = Math.max(1, Math.round(s / 60));
+          txt = `Sin datos nuevos hace ${m} min`;
+          corto = `Hace ${m} min`;
+          sr = `Sin datos nuevos hace ${m} minuto${m === 1 ? '' : 's'}`;
+        }
+      }
+    }
+    const box = T.querySelector('.tv-aviso');
+    if (box && box.dataset.t !== txt) {
+      box.dataset.t = txt;
+      box.innerHTML = txt ? (corto !== txt ? `<span class="tv-av-c" aria-hidden="true">${esc(corto)}</span>` : '') +
+        `<span class="tv-av-l" aria-hidden="true">${esc(txt)}</span><span class="sr">${esc(sr)}</span>` : '';
+      box.hidden = !txt;
+    }
+    if (T.classList.contains('viejo') !== !!txt) T.classList.toggle('viejo', !!txt);
+  }
+  window.addEventListener('pc:red', () => tvAviso());
+  // La pantalla encendida mientras esté abierto (si el navegador lo permite; si no, nada).
+  async function tvLock() {
+    if (!tv.el || tv.lock || document.hidden) return;
+    const wl = navigator.wakeLock;
+    if (!wl || typeof wl.request !== 'function' || navigator.standalone === true) { tvLockAviso(); return; }
+    try {
+      const l = await wl.request('screen');
+      if (!tv.el) { l.release().catch(() => {}); return; }
+      tv.lock = l;
+      l.addEventListener('release', () => { if (tv.lock === l) tv.lock = null; });
+    } catch (e) { tv.lock = null; tvLockAviso(); }
+  }
+  // Una vez por sesión: la pantalla puede apagarse sola (el aviso corto de core.js, encima del modo TV).
+  function tvLockAviso() {
+    let ya = !!tv.lockAvisado;
+    try { ya = ya || sessionStorage.getItem('pc:tv-pantalla') === '1'; sessionStorage.setItem('pc:tv-pantalla', '1'); } catch (e) { /* sin almacenamiento */ }
+    tv.lockAvisado = true;
+    if (!ya && typeof PC.toast === 'function') PC.toast('Tu teléfono puede apagar la pantalla: alarga el bloqueo automático en Ajustes.', { ms: 6000 });
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && tv.el) tvLock(); });
+  function tvOpen(d, auto) {
+    if (tv.el || !view || view.d !== d || !tvAllowed(d)) return;
+    const el = view.el, A = side(d, 'away'), H = side(d, 'home');
+    tv.d = d; tv.live = d.status !== 'final'; tv.auto = !!auto;
+    tv.ctl = {}; tv.broken = {}; tv.shown = null; tv.mq = []; tv.mo = null; tv.srq = []; tv.lastTurn = null;
+    tvSeen(d);
+    tv.opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    // en vivo, lo de ahora: si se estaba mirando otro momento de la curva, se vuelve al vivo; la banda de la pizarra
+    // pasa al modo TV
+    if (tv.live && d.cursor != null) { stopReplay(d); d.cursor = null; d.pitch = null; update(el, d); }
+    clearMoments(el, d);
+    const T = document.createElement('div');
+    T.className = 'tv' + (tv.live ? ' tv-vivo' : ' tv-rep');
+    T.setAttribute('role', 'dialog');
+    T.setAttribute('aria-modal', 'true');
+    T.setAttribute('aria-label', `Modo TV: ${A.short} en ${H.short}`);
+    T.tabIndex = -1;
+    T.innerHTML = tvShell(d);
+    document.body.appendChild(T);
+    tv.el = T;
+    // lo de atrás, inerte: no se toca y el teclado y el lector no entran
+    tv.quietos = Array.from(document.body.children).filter(n => n !== T && n.id !== 'toast' && !/^(SCRIPT|STYLE|TEMPLATE|LINK)$/.test(n.tagName) && !n.hasAttribute('inert'));
+    tv.quietos.forEach(n => n.setAttribute('inert', ''));
+    document.documentElement.classList.add('tv-on');
+    if (!auto && tvActivated()) {
+      try { history.pushState(Object.assign({}, history.state, { tv: 1 }), ''); tv.paso = true; } catch (e) { tv.paso = false; }
+    }
+    T.addEventListener('click', e => {
+      const t = e.target;
+      if (t.closest('.tv-x')) { tvClose(d, 'boton'); return; }
+      const r = t.closest('[data-ret]');
+      if (r) {
+        PC.state.prefs.tvRet = +r.dataset.ret;
+        PC.savePrefs();
+        T.querySelectorAll('[data-ret]').forEach(b => b.setAttribute('aria-pressed', String(b === r)));
+        tvPump();
+        return;
+      }
+      if (t.closest('.tv-play')) {
+        // el botón de la repetición de la pantalla (lo mismo que tocarlo allá); al pausar, el lector oye dónde quedó
+        const b = el.querySelector('.rp-play'), was = !!d.timer;
+        if (b) b.click();
+        tvRepShow(d);
+        if (was && !d.timer) tvSay(pauseText(d));
+        return;
+      }
+      if (t.closest('.tv-band')) tvBand();
+    });
+    // teclado: Escape sale; Tab da la vuelta dentro del modo TV
+    const onKey = e => {
+      if (!tv.el) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); tvClose(d, 'escape'); return; }
+      if (e.key !== 'Tab') return;
+      const f = Array.from(T.querySelectorAll('button:not([disabled])')).filter(n => n.getClientRects().length);
+      if (!f.length) { e.preventDefault(); T.focus(); return; }
+      const a = f[0], z = f[f.length - 1], now = document.activeElement;
+      if (e.shiftKey && (now === a || now === T || !T.contains(now))) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && (now === z || !T.contains(now))) { e.preventDefault(); a.focus(); }
+    };
+    const onFocus = e => { if (tv.el && !T.contains(e.target)) { try { T.focus({ preventScroll: true }); } catch (err) { /* nada */ } } };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('focusin', onFocus, true);
+    tv.off = [() => document.removeEventListener('keydown', onKey, true), () => document.removeEventListener('focusin', onFocus, true)];
+    tvLock();
+    if (tv.live) { if (!d.hist.length) tvLive(d, null); tvPump(); wpCatchUp(d); } else tvRepShow(d);
+    tv.avisoT = setInterval(tvAviso, 5000);
+    tvAviso();
+    // al girar o cambiar de tamaño, lo que cabe en la franja de comentario cambia
+    const onResize = () => { if (tv.el) tvFit(); };
+    window.addEventListener('resize', onResize);
+    tv.off.push(() => window.removeEventListener('resize', onResize));
+    try { T.focus({ preventScroll: true }); } catch (e) { /* nada */ }
+  }
+  // why: 'boton', 'escape', 'atras' (Atrás del teléfono), 'giro' (volvió a vertical) o 'ruta' (se fue del juego).
+  function tvClose(d, why) {
+    if (!tv.el || (d && tv.d !== d)) return;
+    const T = tv.el, dd = tv.d;
+    // lo que el modo TV todavía no mostró (los cuadros que esperaban su retraso y la cola de la banda) sale en la
+    // pizarra al volver, como mucho 2 (salvo si se fue del juego)
+    let pend = [];
+    if (why !== 'ruta' && tv.live && dd && dd.hist) {
+      const H = dd.hist, j = H.indexOf(tv.shown);
+      pend = tv.mq.slice();
+      for (let i = j + 1; i < H.length; i++) H[i].mo.forEach(m => { if (!tv.seen.has(moKey(m))) pend.push(m); });
+    }
+    clearTimeout(tv.timer); clearTimeout(tv.mt); clearTimeout(tv.srt); clearInterval(tv.avisoT);
+    tv.timer = tv.mt = tv.srt = tv.avisoT = 0;
+    Object.keys(tv.ctl).forEach(k => { const c = tv.ctl[k]; if (c && typeof c.destroy === 'function') safe(() => c.destroy()); });
+    tv.ctl = {};
+    tv.off.forEach(f => f());
+    tv.off = [];
+    tv.quietos.forEach(n => n.removeAttribute('inert'));
+    tv.quietos = [];
+    document.documentElement.classList.remove('tv-on');
+    tv.el = null;
+    tv.d = null;
+    tv.shown = null;
+    tv.mo = null;
+    tv.mq = [];
+    T.remove();
+    if (tv.lock) { const l = tv.lock; tv.lock = null; l.release().catch(() => {}); }
+    // abierto solo al girar y cerrado a mano: no vuelve a salir hasta que se gire otra vez
+    if (tv.auto && why !== 'giro' && why !== 'ruta') tv.dismissed = true;
+    if (tv.paso && why !== 'atras' && why !== 'ruta') { tv.paso = false; try { history.back(); } catch (e) { /* nada */ } }
+    tv.paso = false;
+    if (why !== 'ruta' && dd && view && view.d === dd) {
+      // de vuelta en la pantalla de siempre (que siguió al día por debajo)
+      const o = tv.opener && tv.opener.isConnected ? tv.opener : view.el.querySelector('.gm-tv');
+      if (o) { try { o.focus({ preventScroll: true }); } catch (e) { /* nada */ } }
+      paintChapita(dd);
+      if (pend.length) pushMoments(view.el, dd, topOf(pend, 2), 'vivo');
+    }
+    tv.opener = null;
+  }
+  window.addEventListener('popstate', () => {
+    if (tv.el && tv.paso && !(history.state && history.state.tv)) { tv.paso = false; tvClose(tv.d, 'atras'); return; }
+    // Adelante hasta el paso de un modo TV que ya se cerró: se salta
+    if (!tv.el && history.state && history.state.tv) history.back();
+  });
+  // En el teléfono, girarlo a horizontal abre el modo TV; volver a vertical lo cierra (si se abrió así).
+  const tvMq = root.matchMedia ? root.matchMedia('(orientation: landscape) and (max-height: 500px) and (pointer: coarse)') : null;
+  function tvTurn() {
+    if (!tvMq) return;
+    if (tvMq.matches) { if (view && view.d && !tv.el && !tv.dismissed && view.d.layout) tvOpen(view.d, true); }
+    else { tv.dismissed = false; if (tv.el && tv.auto) tvClose(tv.d, 'giro'); }
+  }
+  if (tvMq) { if (tvMq.addEventListener) tvMq.addEventListener('change', tvTurn); else if (tvMq.addListener) tvMq.addListener(tvTurn); }
+
+  // ---------- compartir ----------
+  // "MAG 3-2 ANZ · alta del 7.º" (en vivo), "MAG 14-6 ANZ · Final", "MAG vs. ANZ · sáb 12 oct, 7:00 p. m." (por jugar), y
+  // el enlace al juego (core.js: PC.share completa la dirección).
+  function shareText(d) {
+    const A = side(d, 'away'), H = side(d, 'home'), g = d.feed.gameData, stObj = d.st || g.status || {};
+    const M = withLive(d, () => moment(d)), ls = M.ls || {};
+    const score = `${A.abbr} ${M.tot.away.r}-${M.tot.home.r} ${H.abbr}`, vs = `${A.abbr} vs. ${H.abbr}`;
+    if (d.status === 'live') {
+      const st = /delayed/i.test(stObj.detailedState || '') ? (C.statusText(stObj) || 'juego detenido').toLowerCase() : M.inning ? halfLabel(M.inning, M.top, M.state).toLowerCase() : 'en vivo';
+      return `${score} · ${st}`;
+    }
+    if (d.status === 'final') return `${score} · ${finalText(ls.currentInning, ls.scheduledInnings || 9, stObj.reason, /tied/i.test(stObj.detailedState || ''))}`;
+    if (d.status === 'pre') {
+      const dt = g.datetime || {}, tbd = stObj.startTimeTBD || dt.startTimeTBD;
+      return `${vs} · ${D.short(dt.officialDate)}${tbd ? '' : `, ${D.time(Date.parse(dt.dateTime))}`}`;
+    }
+    return `${d.done.length ? score : vs} · ${C.statusText(stObj) || (d.status === 'post' ? 'Pospuesto' : 'Suspendido')}`;
+  }
+  // Con el menú de compartir abierto, otro toque no hace nada; los avisos los da PC.share ("Enlace copiado", el error).
+  let sharing = false;
+  function shareGame(d) {
+    if (sharing || !d || !d.feed || typeof PC.share !== 'function') return;
+    const A = side(d, 'away'), H = side(d, 'home');
+    sharing = true;
+    let p;
+    try { p = PC.share({ title: `${A.short} en ${H.short}`, text: shareText(d), url: `#/juego/${d.pk}` }); } catch (e) { p = null; }
+    Promise.resolve(p).catch(() => {}).then(() => { sharing = false; });
+  }
+
   // ---------- la pantalla ----------
   function killCharts(d) {
     if (!d.ctl) return;
@@ -1616,7 +2193,10 @@
     // pantalla anterior es ese día; si se llegó desde un equipo o un jugador, abre el día como paso nuevo).
     // El h1 y la región que se anuncia en vivo son solo para el lector de pantalla. .rp-marca: el lugar de la barra de
     // la repetición (watchBar).
-    el.innerHTML = `<nav class="crumbs"><a class="gm-back" href="#/juegos/${date}">${I_LEFT}<span>Juegos del ${esc(D.short(date))}</span></a></nav>
+    // A la derecha de la miga, el modo TV (en vivo y con repetición) y compartir (si core.js lo trae).
+    const acts = (tvAllowed(d) ? `<button type="button" class="gm-act gm-tv" aria-label="Modo TV: el juego a pantalla completa" title="Modo TV">${I_TV}</button>` : '') +
+      (typeof PC.share === 'function' ? `<button type="button" class="gm-act gm-share" aria-label="Compartir el juego" title="Compartir">${I_SHARE}</button>` : '');
+    el.innerHTML = `<nav class="crumbs gm-crumbs"><a class="gm-back" href="#/juegos/${date}">${I_LEFT}<span>Juegos del ${esc(D.short(date))}</span></a>${acts ? `<span class="gm-acts">${acts}</span>` : ''}</nav>
       <h1 class="sr">${esc(A.name)} en ${esc(H.name)}</h1>
       <section class="board-wrap" aria-label="Pizarra"><div class="board"></div>${replay ? '<i class="rp-marca" aria-hidden="true"></i>' : ''}</section>
       <p id="vivo-sr" class="sr" aria-live="polite"></p>
@@ -1625,7 +2205,7 @@
         <div class="seg gm-tabs" role="tablist" aria-label="Detalle del juego">${tabs.map(([k, l]) => `<button type="button" role="tab" id="tb-${k}" data-tab="${k}" aria-controls="tab-${k}" aria-selected="false" tabindex="-1">${l}</button>`).join('')}<span class="seg-ind" aria-hidden="true"></span></div>
         ${tabs.map(([k]) => `<div id="tab-${k}" class="${k === 'resumen' ? 'gm-res' : ''}" role="tabpanel" aria-labelledby="tb-${k}" hidden>${k === 'resumen' ? resumenHTML(d) : ''}</div>`).join('')}
       </section>
-      ${U.fresh(API.when(d.feed))}`;
+      ${U.fresh(freshOf(d))}`;
     d.stale = new Set();
     d.mo = null;
     d.mq = [];
@@ -1714,9 +2294,17 @@
         PC.savePrefs();
       });
     }
+    // modo TV y compartir
+    const actsEl = el.querySelector('.gm-acts');
+    if (actsEl) actsEl.addEventListener('click', e => {
+      if (e.target.closest('.gm-tv')) tvOpen(d, false);
+      else if (e.target.closest('.gm-share')) shareGame(d);
+    });
     watchBoard(el, d);
     watchBar(el, d);
     if (keep) window.scrollTo(0, y);
+    // el teléfono ya está en horizontal al abrir el juego: el modo TV de una vez (salvo que lo hayan cerrado así)
+    else if (tvMq && tvMq.matches && !tv.dismissed && !tv.el) tvOpen(d, true);
   }
 
   // Datos que salen de las jugadas (calc.js): la zona del juego, las marcas de la curva, el mapa y los pasos de la
@@ -1747,6 +2335,61 @@
 
   // El juego completo y la probabilidad de ganar se piden a la vez (wp: la respuesta ya pedida; undefined, se pide aquí).
   const wpFor = (d, st) => !/^(pre|post)$/.test(st || '');
+  // Las jugadas terminadas de un juego completo, y el turno en curso (su índice; null si no hay uno sin terminar).
+  const doneOf = feed => (feed.liveData.plays.allPlays || []).reduce((a, p) => a + (p.about && p.about.isComplete ? 1 : 0), 0);
+  const abOf = feed => { const cp = feed.liveData.plays.currentPlay; return cp && cp.about && !cp.about.isComplete ? cp.about.atBatIndex : null; };
+  // La probabilidad se pide con cada turno (cada jugada terminada y cada turno nuevo) mientras la presión del último turno
+  // que se sabe llegue a esto; si no, cada 2 jugadas (0: siempre con cada turno). Así entra en 1,5 MB por juego.
+  const WP_LI = 0.8;
+  // La probabilidad de ganar de una respuesta (d.wpRaw, tal cual: el vivo la vuelve a usar hasta el próximo pedido).
+  // Valen las jugadas que ya estaban terminadas cuando se pidió (d.wpN): la que venía en curso pudo terminar distinto.
+  // La presión del turno en curso, si la respuesta lo trae y sigue siendo ese turno.
+  function wpUse(d, wp) {
+    d.wpRaw = wp || null;
+    d.wpa = wp ? safe(C.wpa, wp) : null;
+    d.liLive = null;
+    d.liLast = null;
+    if (!d.wpa) return;
+    const k = Math.min(d.done.length, d.wpN != null ? d.wpN : d.done.length), cur = d.wpa.plays[k] || null;
+    if (k === d.done.length && cur) d.liLive = cur.li;
+    // la presión más nueva que se sabe (wpDue): la del turno que estaba en curso al pedir o, si no vino, la última jugada
+    d.liLast = cur && cur.li != null ? cur.li : k > 0 && d.wpa.plays[k - 1] ? d.wpa.plays[k - 1].li : null;
+    d.wpa.plays = d.wpa.plays.slice(0, k);
+  }
+  // En vivo, ¿toca pedir la probabilidad de ganar? Con presión (la más nueva que se sabe, d.liLast, ≥ WP_LI, o sin
+  // saberla): con cada jugada terminada desde el último pedido (d.wpAt: la curva al día) y con cada turno nuevo (d.wpAb:
+  // su presión). Sin presión: con 2 jugadas terminadas, con una carrera o el tercer out, o si todavía no hay ninguna.
+  // En Final, solo si a la curva le falta alguna jugada (si la API venía atrasada, se vuelve a pedir en los ciclos del
+  // Final). Más, al abrir la curva o el modo TV (wpCatchUp).
+  function wpDue(d, feed, n, st, ab) {
+    const k = d.wpAt || 0;
+    if (st === 'final') return n > (d.wpN || 0) || !d.wpa || d.wpa.plays.length < n;
+    if (!(WP_LI > 0) || d.liLast == null || d.liLast >= WP_LI) return n > k || (ab != null && ab !== d.wpAb);
+    if (n <= k) return false;
+    if (n - k >= 2 || !d.wpRaw || pauseOf(feed.liveData.linescore)) return true;
+    // una carrera o el tercer out entre las jugadas nuevas: la curva se mueve
+    return (feed.liveData.plays.allPlays || []).filter(p => p.about && p.about.isComplete).slice(k, n)
+      .some(p => (p.count && p.count.outs >= 3) || p.about.isScoringPlay);
+  }
+  // Al abrir la curva (la pestaña Resumen) o el modo TV en vivo: si a la probabilidad le faltan jugadas, se pide ya y
+  // se repinta (si mientras tanto el vivo trajo una más nueva, queda esa).
+  async function wpCatchUp(d) {
+    if (d.status !== 'live' || d.wpBusy || !d.feed || !d.done.length || (d.wpRaw && (d.wpN || 0) >= d.done.length)) return;
+    const n = d.done.length, ab = abOf(d.feed);
+    d.wpBusy = true;
+    let wp = null;
+    try { wp = await API.winProb(d.pk, true); } catch (e) { wp = null; }
+    d.wpBusy = false;
+    const v = view;
+    if (!wp || !v || v.d !== d || !v.ctx.alive() || (d.wpN || 0) > n) return;
+    d.wpN = n;
+    if (n >= (d.wpAt || 0)) { d.wpAt = n; d.wpAb = ab; }
+    wpUse(d, wp);
+    derive(d);
+    if (layoutOf(d) !== d.layout) draw(v.el, v.ctx, true);
+    else still(v.el, () => update(v.el, d, {}));
+    tvLive(d, null);
+  }
   async function load(ctx, feed, live, watch, wp) {
     const d = ctx.data;
     const before = d.status;
@@ -1763,13 +2406,8 @@
     d.wpa = null;
     d.liLive = null;
     if (wpFor(d, d.status) && d.done.length) {
-      if (wp === undefined) { try { wp = await API.winProb(d.pk, live); } catch (e) { wp = null; } }
-      d.wpa = wp ? safe(C.wpa, wp) : null;
-      if (d.wpa && d.wpa.plays.length > d.done.length) {
-        // la presión del turno en curso, si la API ya lo trae
-        d.liLive = d.wpa.plays[d.done.length].li;
-        d.wpa.plays = d.wpa.plays.slice(0, d.done.length);
-      }
+      if (wp === undefined) { d.wpN = d.wpAt = d.done.length; d.wpAb = abOf(feed); try { wp = await API.winProb(d.pk, live); } catch (e) { wp = null; } }
+      wpUse(d, wp);
     }
     if ((d.status === 'pre' || d.status === 'post') && !d.stats) {
       try { d.stats = await PC.statsCtx(+feed.gameData.game.season, 'R'); } catch (e) { d.stats = null; }
@@ -1778,6 +2416,152 @@
   }
   // Hora del dato de un juego completo según la API ("20260203_004000"): para no pintar uno viejo como nuevo.
   const tsOf = f => (f && f.metaData && f.metaData.timeStamp) || '';
+  // La misma hora en milisegundos (UTC), o null.
+  const tsMs = f => {
+    const m = /^(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d)$/.exec(tsOf(f));
+    return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
+  };
+  // "Actualizado hace…": lo último que se confirmó al día (diffPatch puede confirmar sin bajar nada).
+  const freshOf = d => Math.max(API.when(d.feed), d.okAt || 0);
+
+  // ---------- el vivo ----------
+  // Lo que sigue a un juego recalculado (diffPatch o la vigilancia de la Fase 2): los momentos de las jugadas nuevas,
+  // completas, y del turno en curso solo sus cambios de lanzador (si la persona no está mirando otro momento de la
+  // curva); la pantalla por piezas, o entera si cambió de forma (empezó o terminó el juego).
+  function afterLoad(el, ctx, from) {
+    const d = ctx.data, fr = el.querySelector('[data-ago]');
+    const list = d.cursor == null ? momentsOf(d, from - 1, d.done.length - 1).concat(changesNow(d)) : [];
+    if (list.length) { d.srSig = d.sig.turn; const lp = lastDone(d); d.srLast = lp && lp.result && lp.result.description; } // lo dice la banda
+    if (layoutOf(d) === d.layout) {
+      still(el, () => update(el, d, { anim: d.cursor == null }));
+      if (fr) fr.dataset.ago = String(freshOf(d));
+    } else {
+      // el juego acaba de terminar con momentos (la carrera del final, el fin del juego): salen sobre la pizarra del
+      // turno de la última jugada, y la de siempre vuelve cuando termina la banda (showMoment). Con el modo TV abierto, la
+      // banda sale allá: aquí queda la de siempre.
+      if (d.status === 'final' && list.length && d.done.length && d.cursor == null && !tvOn(d)) { d.cursor = d.done.length - 1; d.pitch = null; d.finale = true; }
+      draw(el, ctx, true);
+    }
+    tvLive(d, list); // el modo TV lo muestra con su retraso
+    if (!tvOn(d)) pushMoments(el, d, list, 'vivo');
+  }
+
+  // Un ciclo con diffPatch (api.js: feedPatch). Devuelve false si este ciclo va con la vigilancia de la Fase 2: diffPatch
+  // falló dos veces seguidas (entonces la Fase 2 sigue por PATCH_RETRY y después se vuelve a probar).
+  // ¿Un error de red? (sin señal, la conexión se cortó o tardó demasiado). No cuenta como falla de diffPatch: el ciclo
+  // siguiente vuelve a probar con diffPatch; la vigilancia de la Fase 2 no ayudaría sin red. Cuentan solo las respuestas
+  // que no sirven (api.js: el juego que no es juego, un error del servidor).
+  const deRed = e => !!e && !e.http && (e.name === 'TypeError' || e.name === 'AbortError' || /sin conexi/i.test(String(e.message || '')) || API.status.online === false);
+  async function refreshPatch(el, ctx) {
+    const d = ctx.data;
+    let r = null, red = false;
+    try { r = await API.feedPatch(d.pk, d.feed); } catch (e) { r = null; red = deRed(e); }
+    if (!ctx.alive()) return true;
+    const feed = r && r.feed;
+    if (!feed || !feed.gameData || !feed.liveData || !feed.liveData.plays) {
+      if (red) return true; // sin red: el próximo ciclo, diffPatch otra vez
+      d.pf = (d.pf || 0) + 1;
+      if (d.pf < 2) return true; // el próximo ciclo vuelve a probar
+      d.pf = 0;
+      d.f2At = Date.now();
+      return false;
+    }
+    d.pf = 0;
+    d.f2At = 0;
+    d.okAt = Date.now();
+    await fromPatch(el, ctx, feed, r.modo);
+    return true;
+  }
+  // El juego al día. diffPatch no copia el juego: el objeto es el mismo y lo que cambió es nuevo (calc.js: applyPatch),
+  // así que todo se lee otra vez desde d.feed. Las firmas y lo que se repinta son los de la Fase 2: con la misma firma
+  // del turno solo la pizarra (si cambió la del lanzamiento); con otra, todo. La probabilidad de ganar, cuando toca
+  // (wpDue). El resincronizado de api.js (/feed/live, 'completo' con sync) entra por el mismo camino: trae las mismas
+  // jugadas con las correcciones del anotador, y como los momentos salen solo de las jugadas nuevas (afterLoad) y una
+  // sola vez (d.seen), no repite bandas.
+  async function fromPatch(el, ctx, feed, modo) {
+    const d = ctx.data, fr = el.querySelector('[data-ago]');
+    const ago = () => { if (fr) fr.dataset.ago = String(freshOf(d)); };
+    const same = feed === d.feed;
+    if (same && modo === 'igual') { ago(); return; }
+    // un juego completo más viejo que el que ya está no se pinta
+    const t1 = tsOf(feed), t0 = tsOf(d.feed);
+    if (!same && t1 && t0 && t1 < t0) { ago(); return; }
+    // todo sale del juego, que ya está al día (nada de la vigilancia)
+    d.ls = null; d.cp = null; d.st = null; d.wcp = true;
+    const cp = feed.liveData.plays.currentPlay || null;
+    const sig = sigOf(feed.liveData.linescore, feed.gameData.status, cp);
+    if (same && sig.turn === d.sig.turn) {
+      if (sig.pitch !== d.sig.pitch) {
+        d.sig = sig;
+        // si se está leyendo más abajo (el box, el jugada a jugada), lo que se lee no se mueve
+        still(el, () => paintBoard(el, d, d.cursor == null ? 'paso' : null));
+        paintChapita(d);
+        tvLive(d, null);
+      }
+      ago();
+      return;
+    }
+    const from = d.done.length;
+    const n = doneOf(feed), st = C.gameStatus(feed.gameData.status), ab = abOf(feed);
+    let wp = d.wpRaw;
+    if (wpFor(d, st) && n && wpDue(d, feed, n, st, ab)) {
+      // si falla, sigue la que había (con sus jugadas) y no se reintenta hasta la próxima jugada o el próximo turno
+      let ok = true;
+      const r = await API.winProb(d.pk, true).catch(() => { ok = false; return null; });
+      if (!ctx.alive()) return;
+      d.wpAt = n;
+      d.wpAb = ab;
+      if (ok) { wp = r; d.wpN = n; }
+    }
+    await load(ctx, feed, true, null, wp);
+    if (!ctx.alive()) return;
+    afterLoad(el, ctx, from);
+    ago();
+  }
+
+  // Un ciclo con la vigilancia de la Fase 2: la consulta liviana; el juego completo solo si cambió el turno.
+  async function refreshWatch(el, ctx) {
+    const d = ctx.data;
+    const watch = await API.watch(d.pk);
+    if (!ctx.alive() || !watch || !watch.gameData) return;
+    d.okAt = Date.now(); // dato al día (el modo TV avisa si pasa mucho sin esto)
+    const fr = el.querySelector('[data-ago]');
+    const wls = watch.liveData && watch.liveData.linescore, wcp = cpOf(watch);
+    d.wcp = !!wcp;
+    const sig = sigOf(wls, watch.gameData.status, wcp);
+    // la pizarra con lo de la vigilancia: la cuenta, los corredores y la zona
+    const byWatch = () => {
+      d.ls = wls;
+      d.st = watch.gameData.status;
+      if (wcp) d.cp = wcp;
+      // si se está leyendo más abajo (el box, el jugada a jugada), lo que se lee no se mueve
+      still(el, () => paintBoard(el, d, d.cursor == null ? 'paso' : null));
+      paintChapita(d);
+      tvLive(d, null, tsMs(watch)); // el retraso del modo TV, desde la hora de la vigilancia
+    };
+    if (sig.turn === d.sig.turn) {
+      if (sig.pitch !== d.sig.pitch) { d.sig = sig; byWatch(); } else { d.ls = wls; d.st = watch.gameData.status; if (wcp) d.cp = wcp; }
+      if (fr) fr.dataset.ago = String(API.when(watch));
+      return;
+    }
+    const from = d.done.length;
+    // la Fase 2 pide la probabilidad con cada juego completo (el juego pesa mucho más); si falla, sigue la que había
+    let wpOk = true;
+    const [feed, wp] = await Promise.all([API.feed(d.pk, true), API.winProb(d.pk, true).catch(() => { wpOk = false; return d.wpRaw || null; })]);
+    if (!ctx.alive()) return;
+    // un juego completo que no es más nuevo que el que ya está (falló la red y api.js dio la copia, o llegó tarde):
+    // no se pinta como si fuera de ahora. La pizarra sigue con la vigilancia y d.sig no cambia: el próximo ciclo lo
+    // vuelve a pedir. Con la misma hora pero otro estado sí vale: el paso a Final llega sin cambiar la hora del dato.
+    const t1 = tsOf(feed), t0 = tsOf(d.feed);
+    const otroEstado = (feed.gameData.status || {}).statusCode !== (d.feed.gameData.status || {}).statusCode;
+    if (feed === d.feed || (t1 && t0 && (t1 < t0 || (t1 === t0 && !otroEstado)))) { byWatch(); return; }
+    d.wpAt = doneOf(feed);
+    d.wpAb = abOf(feed);
+    if (wpOk) d.wpN = d.wpAt;
+    await load(ctx, feed, true, watch, wp);
+    if (!ctx.alive()) return;
+    afterLoad(el, ctx, from);
+  }
 
   // La posición de cada juego en el historial (pestaña, jugada de la repetición, filtro del mapa), para cuando se vuelve:
   // al abrir un jugador desde el juego y volver atrás, la pantalla se rehace (core.js) y sin esto volvería al Resumen y
@@ -1798,7 +2582,8 @@
 
   PC.register('juego', {
     tab: 'juegos',
-    skeleton: 'juego',
+    // el esqueleto de un juego en vivo tiene la forma de la pizarra del turno (la lista avisa con PC.state.hint)
+    skeleton: args => { const h = PC.state && PC.state.hint; return h && +h.pk === +args[0] && h.status === 'live' ? 'juegoVivo' : 'juego'; },
     every: ctx => {
       const d = ctx.data;
       if (d.status === 'live') return 12000;
@@ -1821,7 +2606,8 @@
       d.seen = new Set();
       d.vs = new Map();
       d.speed = SPEEDS.indexOf(+PC.state.prefs.rpSpeed) >= 0 ? +PC.state.prefs.rpSpeed : 1;
-      view = { el, d };
+      d.hist = []; // el vivo, para el modo TV con retraso
+      view = { el, d, ctx };
       // lugar en el historial de esta pantalla (keepSpot); se lee antes de esperar a la red
       d.pos = history.state && typeof history.state.pc === 'number' ? history.state.pc : null;
       d.spot = d.pos == null ? null : `${d.pos}|${pk}`;
@@ -1833,6 +2619,7 @@
       const live = ws !== 'final';
       const [feed, wp] = await Promise.all([API.feed(pk, live), wpFor(d, ws) ? API.winProb(pk, live).catch(() => null) : undefined]);
       if (!ctx.alive()) return;
+      if (wp !== undefined) { d.wpN = d.wpAt = doneOf(feed); d.wpAb = abOf(feed); } // con esta probabilidad ya bajada
       await load(ctx, feed, live, watch, wp);
       if (!ctx.alive()) return;
       // lo que ya pasó en el turno en curso (un cambio de lanzador) no sale después como novedad
@@ -1844,58 +2631,22 @@
         d.side = s.side;
         if (s.cursor != null && d.status === 'final' && s.cursor < d.done.length) { d.cursor = s.cursor; d.pitch = s.pitch; }
       }
+      // el primer cuadro del vivo para el modo TV (con retraso muestra lo de hace un rato: desde aquí se guarda)
+      if (d.status === 'live') tvLive(d, null);
       draw(el, ctx);
     },
+    // En vivo: diffPatch (api.js: feedPatch), salvo que haya fallado dos veces seguidas; entonces la vigilancia de la
+    // Fase 2 por PATCH_RETRY. Sin feedPatch (un api.js de antes), la vigilancia.
     async refresh(el, args, ctx) {
       const d = ctx.data;
       if (!d.feed) return;
-      const watch = await API.watch(d.pk);
-      if (!ctx.alive() || !watch || !watch.gameData) return;
-      const fr = el.querySelector('[data-ago]');
-      const wls = watch.liveData && watch.liveData.linescore, wcp = cpOf(watch);
-      d.wcp = !!wcp;
-      const sig = sigOf(wls, watch.gameData.status, wcp);
-      // la pizarra con lo de la vigilancia: la cuenta, los corredores y la zona
-      const byWatch = () => {
-        d.ls = wls;
-        d.st = watch.gameData.status;
-        if (wcp) d.cp = wcp;
-        // si se está leyendo más abajo (el box, el jugada a jugada), lo que se lee no se mueve
-        still(el, () => paintBoard(el, d, d.cursor == null ? 'paso' : null));
-        paintChapita(d);
-      };
-      if (sig.turn === d.sig.turn) {
-        if (sig.pitch !== d.sig.pitch) { d.sig = sig; byWatch(); } else { d.ls = wls; d.st = watch.gameData.status; if (wcp) d.cp = wcp; }
-        if (fr) fr.dataset.ago = String(API.when(watch));
-        return;
-      }
-      const from = d.done.length;
-      const [feed, wp] = await Promise.all([API.feed(d.pk, true), API.winProb(d.pk, true).catch(() => null)]);
-      if (!ctx.alive()) return;
-      // un juego completo que no es más nuevo que el que ya está (falló la red y api.js dio la copia, o llegó tarde):
-      // no se pinta como si fuera de ahora. La pizarra sigue con la vigilancia y d.sig no cambia: el próximo ciclo lo
-      // vuelve a pedir.
-      const t1 = tsOf(feed), t0 = tsOf(d.feed);
-      if (feed === d.feed || (t1 && t0 && t1 <= t0)) { byWatch(); return; }
-      await load(ctx, feed, true, watch, wp);
-      if (!ctx.alive()) return;
-      // los momentos de las jugadas nuevas, completas; del turno en curso, solo sus cambios de lanzador (si la persona
-      // no está mirando otro momento de la curva)
-      const list = d.cursor == null ? momentsOf(d, from - 1, d.done.length - 1).concat(changesNow(d)) : [];
-      if (list.length) { d.srSig = d.sig.turn; const lp = lastDone(d); d.srLast = lp && lp.result && lp.result.description; } // lo dice la banda
-      if (layoutOf(d) === d.layout) {
-        still(el, () => update(el, d, { anim: d.cursor == null }));
-        if (fr) fr.dataset.ago = String(API.when(d.feed));
-      } else {
-        // el juego acaba de terminar con momentos (la carrera del final, el fin del juego): salen sobre la pizarra del
-        // turno de la última jugada, y la de siempre vuelve cuando termina la banda (showMoment)
-        if (d.status === 'final' && list.length && d.done.length && d.cursor == null) { d.cursor = d.done.length - 1; d.pitch = null; d.finale = true; }
-        draw(el, ctx, true);
-      }
-      pushMoments(el, d, list, 'vivo');
+      const patch = has(API, 'feedPatch') && !(d.f2At && Date.now() - d.f2At < PATCH_RETRY);
+      if (!(patch && await refreshPatch(el, ctx)) && ctx.alive()) await refreshWatch(el, ctx);
+      if (tvOn(d)) tvAviso();
     },
     leave(ctx) {
       const d = ctx.data;
+      tvClose(d, 'ruta');
       stopReplay(d);
       unwatch(d);
       if (d.bio) { d.bio.disconnect(); d.bio = null; }
@@ -1916,19 +2667,42 @@
   const sk = (w, h, more) => `<span class="sk" style="width:${w};height:${h}${more ? ';' + more : ''}"></span>`;
   const ghost = t => `<span class="sk-t">${esc(t)}</span>`;
   const times = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('');
+  // la miga con el modo TV y compartir, apagados
+  const skCrumbs = () => `<nav class="crumbs gm-crumbs"><a class="gm-back">${I_LEFT}${ghost('Juegos del 00 oct')}</a>` +
+    `<span class="gm-acts"><span class="gm-act">${I_TV}</span><span class="gm-act">${I_SHARE}</span></span></nav>`;
+  const skLine = () => {
+    const tr = () => `<tr><th>&nbsp;</th>${times(9, () => '<td>&nbsp;</td>')}<td class="rhe r">&nbsp;</td><td class="rhe">&nbsp;</td><td class="rhe">&nbsp;</td></tr>`;
+    return `<div class="bt-line"><table><thead><tr><th></th>${times(9, i => `<th>${i + 1}</th>`)}<th class="rhe">C</th><th class="rhe">H</th><th class="rhe">E</th></tr></thead>` +
+      `<tbody>${tr()}${tr()}</tbody></table></div>`;
+  };
+  const skTabs = () => `<div class="sec gm-tabsec"><div class="seg gm-tabs">${['Resumen', 'Box', 'Jugadas', 'Datos'].map(t => `<button type="button" tabindex="-1">${ghost(t)}</button>`).join('')}</div>` +
+    `<div class="gm-res" role="tabpanel"><div class="sec"><div class="sec-head"><h2>${ghost('Probabilidad de ganar')}</h2></div>` +
+    `<div class="wp-now"><p>${ghost('Magallanes')} <b>${ghost('00%')}</b></p><p>${ghost('Cardenales')} <b>${ghost('00%')}</b></p></div>` +
+    `${sk('100%', '13rem', 'border-radius:12px')}</div></div></div>`;
   U.skeletons.juego = () => {
     const row = name => `<div class="bt-row"><span class="bt-abbr">···</span><a class="bt-name">${ghost(name)}<small>${ghost('00-00')}</small></a><span class="bt-runs">0</span></div>`;
-    const line = () => `<tr><th>&nbsp;</th>${times(9, () => '<td>&nbsp;</td>')}<td class="rhe r">&nbsp;</td><td class="rhe">&nbsp;</td><td class="rhe">&nbsp;</td></tr>`;
-    return `<nav class="crumbs"><a class="gm-back">${I_LEFT}${ghost('Juegos del 00 oct')}</a></nav>` +
+    return skCrumbs() +
       `<section class="board-wrap"><div class="board"><p class="bt-status"><span class="pill">Final</span>` +
-      `<span class="bt-venue">${ghost('Estadio Alfonso Chico Carrasquel')}</span></p>${row('Magallanes')}${row('Cardenales')}` +
-      `<div class="bt-line"><table><thead><tr><th></th>${times(9, i => `<th>${i + 1}</th>`)}<th class="rhe">C</th><th class="rhe">H</th><th class="rhe">E</th></tr></thead>` +
-      `<tbody>${line()}${line()}</tbody></table></div></div></section>` +
+      `<span class="bt-venue">${ghost('Estadio Alfonso Chico Carrasquel')}</span></p>${row('Magallanes')}${row('Cardenales')}${skLine()}</div></section>` +
       `<div class="replay"><div class="rp-row">${sk('112px', '44px', 'border-radius:10px')}${sk('auto', '6px', 'flex:1')}</div>` +
       `<div class="rp-foot"><p class="rp-label">${ghost('Jugada 00 de 00 · Baja del 9.º')}</p><div class="rp-vel">${SPEEDS.map(s => `<button type="button" tabindex="-1">${ghost(s + '×')}</button>`).join('')}</div></div></div>` +
-      `<div class="sec gm-tabsec"><div class="seg gm-tabs">${['Resumen', 'Box', 'Jugadas', 'Datos'].map(t => `<button type="button" tabindex="-1">${ghost(t)}</button>`).join('')}</div>` +
-      `<div class="gm-res" role="tabpanel"><div class="sec"><div class="sec-head"><h2>${ghost('Probabilidad de ganar')}</h2></div>` +
-      `<div class="wp-now"><p>${ghost('Magallanes')} <b>${ghost('00%')}</b></p><p>${ghost('Cardenales')} <b>${ghost('00%')}</b></p></div>` +
-      `${sk('100%', '13rem', 'border-radius:12px')}</div></div></div>`;
+      skTabs();
+  };
+  // Un juego en vivo (la lista deja PC.state.hint = {pk, status} al tocar su tarjeta): la pizarra del turno, con las
+  // mismas clases de boardTurno (estado, marcador con los bombillos, campo y zona, secuencia, duelo, franja de
+  // comentario y línea), así la pizarra no salta al llegar. El campo y la zona miden lo que miden sus dibujos.
+  U.skeletons.juegoVivo = () => {
+    const bl = (n, l) => `<span class="bl"><b>${l}</b><span>${times(n, () => '<i></i>')}</span></span>`;
+    const card = (a, b) => `<div class="dc"><p class="dc-lab"><span>${ghost(a)}</span></p><p class="dc-nm">${ghost(b)}</p><p class="dc-ln">${ghost('Hoy 0-0: sencillo')}</p></div>`;
+    return skCrumbs() +
+      `<section class="board-wrap"><div class="board turno"><p class="bt-status"><span class="pill live">En vivo</span> ${ghost('Alta del 0.º')}</p>` +
+      `<div class="sc-row"><div class="sc"><span class="sc-t away"><span class="bt-abbr">···</span></span><span class="sc-r flip">0</span><span class="sc-dash">–</span>` +
+      `<span class="sc-r flip">0</span><span class="sc-t home"><span class="bt-abbr">···</span></span></div><div class="bl3">${bl(3, 'B')}${bl(2, 'S')}${bl(2, 'O')}</div></div>` +
+      `<div class="tn-now"><div class="tn-field"><span class="sk sk-fld"></span></div><div class="tn-zone"><span class="sk sk-zn"></span></div>` +
+      `<div class="tn-seq"><span class="sk sk-seq"></span></div></div>` +
+      `<div class="tn-duel">${card('Al bate', 'Nombre Apellido')}${card('Lanza', 'Nombre Apellido')}</div>` +
+      `<div class="tn-com"><div class="tn-ctx"><span class="cx">${ghost('En cubierta Apellido')}</span></div>` +
+      `<p class="lastplay"><span class="lp-t">${ghost('Antes: rolata al campocorto, out en primera.')}</span></p></div>${skLine()}</div></section>` +
+      skTabs();
   };
 })(window);

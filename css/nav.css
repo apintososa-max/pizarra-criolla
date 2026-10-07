@@ -1,7 +1,8 @@
 /* Pizarra Criolla · css/nav.css
    Navegación y avisos globales: aviso de conexión (#conn), aviso de versión nueva (#update), tirar hacia abajo
-   para actualizar (#ptr) y flecha de volver. Usa los tokens de styles.css. Lo que se mueve, se mueve con
-   transform y opacity; --top-h (alto de la cabecera con su franja) lo pone core.js. */
+   para actualizar (#ptr), flecha de volver, y en la cabecera la lupa de buscar y la marca "en vivo" angosta. Usa los
+   tokens de styles.css. Lo que se mueve, se mueve con transform y opacity; --top-h (alto de la cabecera con su franja)
+   lo pone core.js. */
 
 /* la pelota de #ptr reemplaza al "tirar para recargar" del navegador, que recargaría toda la app. none y no contain:
    contain quita la recarga pero deja el estiramiento (Android 12+) o el rebote del borde, y se movería toda la página */
@@ -15,6 +16,31 @@ html { overscroll-behavior-y: none; }
   transition: opacity var(--t-toque) linear;
 }
 .crumbs a:active { opacity: .55; }
+
+/* ---------- la lupa de la cabecera (#/buscar) ---------- */
+/* 44 px de toque con solo la lupa a la vista: el círculo invisible se come el espacio entre la temporada y ella, y su
+   borde derecho queda alineado con la página. Así la cabecera sigue en una fila a 360 px; con la letra al 150 % (o con
+   "en vivo" en un teléfono angosto) la temporada y la lupa pasan juntas a la segunda fila, como ya pasaba con la
+   temporada. */
+.top-buscar {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin: 0 -10px 0 -6px;
+  border-radius: 50%; color: var(--ink);
+  transition: transform var(--t-toque) var(--ease-out);
+}
+.top-buscar:hover { text-decoration: none; }
+@media (hover: hover) { .top-buscar:hover { color: var(--accent); } }
+.top-buscar:active { transform: scale(.92); }
+.top-buscar[aria-current] { color: var(--accent); }
+.top-buscar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+/* la marca "2 en vivo" (core.js) en una cabecera angosta (hasta 412 px, o la letra grande): "● 2", para que la lupa no
+   mande la temporada a una segunda fila ni "Pizarra Criolla" a dos líneas; el lector dice "2 juegos en vivo" (aria-label) */
+.live-flag i { display: none; }
+.live-flag .lf-t { white-space: pre; } /* el espacio de " en vivo" no se pierde dentro de la píldora (flex) */
+@media (max-width: 26.5em) {
+  .live-flag { gap: 5px; padding: 0 8px; }
+  .live-flag i { display: block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: pulse 1.6s ease-in-out infinite; }
+  .live-flag .lf-t { display: none; }
+}
 
 /* ---------- tirar hacia abajo para actualizar ---------- */
 /* Sale de debajo de la cabecera (z-index menor) y baja con el dedo; core.js pone top, transform y opacity. */

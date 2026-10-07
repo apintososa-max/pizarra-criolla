@@ -177,6 +177,8 @@
     return null;
   };
 
+  // Carreras de una media entrada del linescore: número, o null si no se jugó (la baja del 9.º del que va ganando).
+  const runsIn = x => (x && x.runs != null && x.runs !== '' ? num(x.runs) : null);
   C.normGame = g => {
     const ls = g.linescore || {};
     const side = s => {
@@ -219,7 +221,9 @@
         L: dec.loser ? { id: dec.loser.id, name: dec.loser.fullName } : null,
         S: dec.save ? { id: dec.save.id, name: dec.save.fullName } : null
       } : null,
-      dh: g.doubleHeader && g.doubleHeader !== 'N' ? g.gameNumber : null
+      dh: g.doubleHeader && g.doubleHeader !== 'N' ? g.gameNumber : null,
+      // carreras por inning, si el calendario las trae (API.teamInnings): [{num, away, home}], null = no se jugó
+      innings: arr(ls.innings).length ? arr(ls.innings).map(I => ({ num: num(I && I.num), away: runsIn(I && I.away), home: runsIn(I && I.home) })) : null
     };
   };
 
@@ -324,6 +328,100 @@
       r.GB = lead ? ((lead.W - r.W) + (r.L - lead.L)) / 2 : 0;
     });
     return ordered;
+  };
+
+  // ---------- la temporada fecha por fecha ----------
+  // Juegos que cuentan para la tabla: terminados, con ganador, de un mismo gamePk una sola vez (la última aparición,
+  // como C.flatSchedule), en orden de fecha y hora.
+  const finalsOf = games => {
+    const by = new Map();
+    for (const g of arr(games)) {
+      if (!g || g.status !== 'final' || !g.away || !g.home || !(g.away.win || g.home.win)) continue;
+      const b = by.get(g.pk);
+      if (!b || g.ts > b.ts) by.set(g.pk, g);
+    }
+    return [...by.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || a.ts - b.ts || a.pk - b.pk);
+  };
+
+  // La tabla al cierre de cada fecha con juegos terminados, con los mismos desempates de C.standings (la última fecha da
+  // la misma tabla). games: C.flatSchedule; teamIds: los equipos de la tabla; o.fase: el tipo de juego ('R', la ronda
+  // regular, por defecto; 'L', el round robin). → {dates: ['AAAA-MM-DD'…], teams: {id: [{date, pos, w, l, pct, gb}]}},
+  // con un lugar por fecha para cada equipo (aunque ese día no haya jugado).
+  C.standingsByDate = (games, teamIds, o) => {
+    const fase = (o && o.fase) || 'R';
+    const ids = arr(teamIds), set = new Set(ids);
+    const fin = finalsOf(arr(games).filter(g => g && g.type === fase && g.away && g.home && set.has(g.away.id) && set.has(g.home.id) && g.date));
+    const dates = [], teams = {};
+    ids.forEach(id => { teams[id] = []; });
+    for (let j = 0; j < fin.length;) {
+      const d = fin[j].date;
+      while (j < fin.length && fin[j].date === d) j++;
+      dates.push(d);
+      for (const r of C.standings(fin.slice(0, j), ids)) teams[r.id].push({ date: d, pos: r.pos, w: r.W, l: r.L, pct: r.PCT, gb: r.GB });
+    }
+    return { dates, teams };
+  };
+
+  // Los últimos n juegos terminados de un equipo (n = 10), del más viejo al más nuevo, sin repetir gamePk:
+  // [{pk, date, win, rs, ra, vs, home}] (rs, ra: carreras anotadas y permitidas; vs: id del rival). Cuentan los juegos
+  // con ganador de todas las fases que vengan en games: para una sola fase, filtrar antes por type.
+  C.lastResults = (games, teamId, n) => {
+    const max = n == null ? 10 : n;
+    if (!(max > 0)) return [];
+    const mine = finalsOf(games).filter(g => g.away.id === teamId || g.home.id === teamId).sort((a, b) => a.ts - b.ts || a.pk - b.pk);
+    return mine.slice(-max).map(g => {
+      const home = g.home.id === teamId, me = home ? g.home : g.away, opp = home ? g.away : g.home;
+      return { pk: g.pk, date: g.date, win: !!me.win, rs: num(me.score), ra: num(opp.score), vs: opp.id, home };
+    });
+  };
+
+  // ---------- carreras por inning ----------
+  // Diez lugares: innings 1 a 9 y uno para todos los extrainnings. En cada uno, {runs, avg, played, avgPlayed}: el total,
+  // el promedio por juego (runs / n), cuántas veces se jugó esa media entrada y el promedio por media entrada jugada
+  // (null si no se jugó: la baja del 9.º que no hace falta no cuenta, y los juegos acortados no tienen 8.º ni 9.º).
+  const INN = 10;
+  const innSlots = () => Array.from({ length: INN }, () => ({ runs: 0, avg: 0, played: 0, avgPlayed: null }));
+  const innAdd = (slot, r) => { if (r != null) { slot.runs += r; slot.played++; } };
+  const innEnd = (slots, n) => slots.forEach(s => { s.avg = n ? s.runs / n : 0; s.avgPlayed = s.played ? s.runs / s.played : null; });
+  const innAt = I => (I && I.num >= 1 ? Math.min(I.num, INN) - 1 : -1);
+  // Las carreras anotadas (scored) y permitidas (allowed) por inning de un equipo en sus juegos terminados con ganador.
+  // games: los de API.teamInnings (C.flatSchedule con innings; sirven también los de toda la liga). → {n, scored, allowed}
+  C.runsByInning = (games, teamId) => {
+    const scored = innSlots(), allowed = innSlots();
+    let n = 0;
+    for (const g of finalsOf(games)) {
+      const side = g.away.id === teamId ? 'away' : g.home.id === teamId ? 'home' : null;
+      if (!side || !g.innings) continue;
+      const opp = side === 'away' ? 'home' : 'away';
+      n++;
+      for (const I of g.innings) {
+        const i = innAt(I);
+        if (i < 0) continue;
+        innAdd(scored[i], I[side]);
+        innAdd(allowed[i], I[opp]);
+      }
+    }
+    innEnd(scored, n);
+    innEnd(allowed, n);
+    return { n, scored, allowed };
+  };
+  // El promedio de la liga por inning, para comparar con C.runsByInning: n = juegos × 2 (cada equipo en cada juego), así
+  // avg es lo que anota un equipo por juego en ese inning. allowed es lo mismo que scored (lo que uno anota, otro lo permite).
+  C.runsByInningLeague = games => {
+    const scored = innSlots();
+    let n = 0;
+    for (const g of finalsOf(games)) {
+      if (!g.innings) continue;
+      n += 2;
+      for (const I of g.innings) {
+        const i = innAt(I);
+        if (i < 0) continue;
+        innAdd(scored[i], I.away);
+        innAdd(scored[i], I.home);
+      }
+    }
+    innEnd(scored, n);
+    return { n, scored, allowed: scored };
   };
 
   // ---------- probabilidad de clasificar (Monte Carlo del calendario restante) ----------
@@ -1184,6 +1282,177 @@
     let p = (below + eq / 2) / arr.length;
     if (higherBetter === false) p = 1 - p;
     return Math.max(1, Math.min(99, Math.round(p * 100)));
+  };
+
+  // ---------- parches JSON (RFC 6902): el juego en vivo con diffPatch ----------
+  const own = Object.prototype.hasOwnProperty;
+  const isObj = x => x !== null && typeof x === 'object';
+  // Copia completa de un valor de JSON (lo que entra con add, replace o copy no queda compartido con el parche).
+  const clone = v => {
+    if (!isObj(v)) return v;
+    if (Array.isArray(v)) return v.map(clone);
+    const o = {};
+    for (const k of Object.keys(v)) if (k !== '__proto__') o[k] = clone(v[k]);
+    return o;
+  };
+  // Igualdad de JSON (la de test): mismo tipo, mismas claves y mismos valores; las listas en el mismo orden.
+  const same = (a, b) => {
+    if (a === b) return true;
+    if (!isObj(a) || !isObj(b) || Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) return a.length === b.length && a.every((x, i) => same(x, b[i]));
+    const ka = Object.keys(a);
+    return ka.length === Object.keys(b).length && ka.every(k => own.call(b, k) && same(a[k], b[k]));
+  };
+  // skip(clave) → true: esa clave no cuenta, a cualquier profundidad (falte o no en uno de los dos).
+  const sameBut = (a, b, skip) => {
+    if (a === b) return true;
+    if (!isObj(a) || !isObj(b) || Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) return a.length === b.length && a.every((x, i) => sameBut(x, b[i], skip));
+    const ka = Object.keys(a).filter(k => !skip(k)), kb = Object.keys(b).filter(k => !skip(k));
+    return ka.length === kb.length && ka.every(k => own.call(b, k) && sameBut(a[k], b[k], skip));
+  };
+  C.sameJSON = (a, b, skip) => (typeof skip === 'function' ? sameBut(a, b, skip) : same(a, b));
+
+  // Aplica las operaciones (add, remove, replace, move, copy, test) sobre doc y devuelve el resultado. No copia el juego
+  // entero: copia solo los objetos y listas que están en el camino de un cambio, y al final pasa el resultado al mismo
+  // doc (el objeto de afuera sigue siendo el mismo). Lo que no cambió conserva su identidad y lo que cambió es un objeto
+  // nuevo: lo guardado por objeto (WeakMap) se recalcula solo donde hace falta, y un !== dice qué cambió. Quien guardó
+  // una parte (feed.liveData.linescore) se queda con la de antes: hay que volver a leerla desde doc.
+  // Si una operación no aplica (ruta que no existe, índice fuera de rango, test distinto), lanza error y doc queda intacto.
+  // o.check(resultado): si devuelve false, también lanza error antes de tocar doc (api.js revisa que el juego cuadre).
+  const unesc = t => t.replace(/~1/g, '/').replace(/~0/g, '~');
+  C.applyPatch = (doc, ops, o) => {
+    if (!Array.isArray(ops)) throw new Error('parche: se esperaba una lista de operaciones');
+    const mine = new Set(); // copias hechas en esta llamada: se cambian sin volver a copiarlas
+    const dup = x => { const c = Array.isArray(x) ? x.slice() : Object.assign({}, x); mine.add(c); return c; };
+    let root = doc;
+    const toks = p => {
+      if (p === '') return [];
+      if (typeof p !== 'string' || p.charAt(0) !== '/') throw new Error(`parche: ruta inválida "${p}"`);
+      return p.slice(1).split('/').map(unesc);
+    };
+    // posición en una lista: entero sin ceros a la izquierda; '-' (después del último) y length solo al agregar
+    const idx = (a, t, p, adding) => {
+      if (adding && t === '-') return a.length;
+      if (!/^(0|[1-9]\d*)$/.test(t) || +t > a.length - (adding ? 0 : 1)) throw new Error(`parche: posición inválida en ${p}`);
+      return +t;
+    };
+    // clave de un hijo que tiene que existir
+    const step = (x, t, p) => {
+      if (Array.isArray(x)) return idx(x, t, p, false);
+      if (!isObj(x) || t === '__proto__' || !own.call(x, t)) throw new Error(`parche: no existe ${p}`);
+      return t;
+    };
+    const get = p => { let x = root; for (const t of toks(p)) x = x[step(x, t, p)]; return x; };
+    // el objeto o la lista donde cae el último tramo de la ruta, con copias en el camino
+    const parent = (ts, p) => {
+      if (!isObj(root)) throw new Error(`parche: no existe ${p}`);
+      if (!mine.has(root)) root = dup(root);
+      let x = root;
+      for (let i = 0; i < ts.length - 1; i++) {
+        const k = step(x, ts[i], p);
+        let y = x[k];
+        if (!isObj(y)) throw new Error(`parche: no existe ${p}`);
+        if (!mine.has(y)) { y = dup(y); x[k] = y; }
+        x = y;
+      }
+      return x;
+    };
+    const add = (p, v) => {
+      const ts = toks(p);
+      if (!ts.length) { root = v; return; }
+      const x = parent(ts, p), t = ts[ts.length - 1];
+      if (Array.isArray(x)) x.splice(idx(x, t, p, true), 0, v);
+      else if (t === '__proto__') throw new Error(`parche: ruta inválida "${p}"`);
+      else x[t] = v;
+    };
+    const remove = p => {
+      const ts = toks(p);
+      if (!ts.length) throw new Error('parche: no se puede quitar el documento entero');
+      const x = parent(ts, p), k = step(x, ts[ts.length - 1], p), v = x[k];
+      if (Array.isArray(x)) x.splice(k, 1); else delete x[k];
+      return v;
+    };
+    const value = op => { if (!own.call(op, 'value')) throw new Error(`parche: falta el valor en ${op.op} ${op.path}`); return op.value; };
+    for (const op of ops) {
+      if (!isObj(op)) throw new Error('parche: operación inválida');
+      const p = op.path;
+      if (op.op === 'add') add(p, clone(value(op)));
+      else if (op.op === 'remove') remove(p);
+      else if (op.op === 'replace') {
+        const v = clone(value(op)), ts = toks(p);
+        if (!ts.length) root = v;
+        else { const x = parent(ts, p); x[step(x, ts[ts.length - 1], p)] = v; }
+      } else if (op.op === 'move') {
+        if (typeof op.from !== 'string') throw new Error(`parche: falta from en move ${p}`);
+        if (op.from === p) get(p); // mover a donde mismo: basta con que exista
+        else if (typeof p === 'string' && p.indexOf(op.from + '/') === 0) throw new Error(`parche: no se puede mover ${op.from} dentro de sí mismo`);
+        else add(p, remove(op.from));
+      } else if (op.op === 'copy') {
+        if (typeof op.from !== 'string') throw new Error(`parche: falta from en copy ${p}`);
+        add(p, clone(get(op.from)));
+      } else if (op.op === 'test') {
+        if (!same(get(p), value(op))) throw new Error(`parche: test distinto en ${p}`);
+      } else throw new Error(`parche: operación desconocida "${op.op}"`);
+    }
+    if (o && typeof o.check === 'function' && !o.check(root)) throw new Error('parche: el resultado no cuadra');
+    // el resultado pasa al mismo doc (si los dos son objetos, o los dos listas)
+    if (root === doc) return doc;
+    if (isObj(doc) && isObj(root) && Array.isArray(doc) === Array.isArray(root)) {
+      if (Array.isArray(doc)) { doc.length = 0; for (const v of root) doc.push(v); }
+      else {
+        for (const k of Object.keys(doc)) if (!own.call(root, k)) delete doc[k];
+        Object.assign(doc, root);
+      }
+      return doc;
+    }
+    return root;
+  };
+
+  // ---------- búsqueda sin acentos ----------
+  // Las tildes, diéresis y la virgulilla de la ñ, que normalize('NFD') deja sueltas (U+0300 a U+036F).
+  const MARKS = new RegExp(`[${String.fromCharCode(0x300)}-${String.fromCharCode(0x36f)}]`, 'g');
+  // "José A. Núñez Jr." → "jose a nunez jr": minúsculas, sin tildes ni diéresis, ñ → n, sin puntos ni apóstrofos; el
+  // guion separa palabras ("Jean-Carlos" → "jean carlos").
+  C.norm = s => String(s == null ? '' : s).normalize('NFD').replace(MARKS, '').toLowerCase()
+    .replace(/[.'’‘`´]/g, '').replace(/-/g, ' ');
+
+  // Nombre de cada jugador ya normalizado, guardado por objeto (la lista de API.players no cambia mientras se escribe).
+  // El apellido es el lastName de la API si viene; si no, lo que sigue al primer nombre.
+  const nameMemo = new WeakMap();
+  const normName = s => C.norm(s).replace(/\s+/g, ' ').trim();
+  const nameKey = p => {
+    let k = nameMemo.get(p);
+    if (!k) {
+      const full = normName(p.fullName), words = full.split(' ').filter(Boolean);
+      const last = p.lastName ? normName(p.lastName) : words.slice(1).join(' ');
+      k = { full, words, last, lastWords: last.split(' ').filter(Boolean) };
+      nameMemo.set(p, k);
+    }
+    return k;
+  };
+  // Los jugadores de list que coinciden con q, los mejores primero: el apellido empieza con q ("mart" → Martínez),
+  // después el nombre ("jose" → José Altuve), después cada palabra de q empieza una palabra del nombre en cualquier orden
+  // ("martinez jose"), y por último el nombre contiene q. Los empates van por tiempo de juego (pa + bf, de API.players)
+  // y después por nombre. list: [{fullName, lastName?, pa?, bf?}]; n: cuántos (20). Sin texto, ninguno.
+  C.searchPlayers = (list, q, n) => {
+    const max = n == null ? 20 : n;
+    const qq = normName(q);
+    if (!qq || !(max > 0)) return [];
+    const toks = qq.split(' ');
+    const hits = [];
+    for (const p of arr(list)) {
+      if (!p || typeof p !== 'object' || p.fullName == null) continue;
+      const k = nameKey(p);
+      let rank = -1;
+      if (k.last && (k.last.indexOf(qq) === 0 || k.lastWords.some(w => w.indexOf(qq) === 0))) rank = 0;
+      else if (k.full.indexOf(qq) === 0) rank = 1;
+      else if (toks.every(t => k.words.some(w => w.indexOf(t) === 0))) rank = 2;
+      else if (k.full.indexOf(qq) >= 0) rank = 3;
+      if (rank >= 0) hits.push({ p, rank, t: num(p.pa) + num(p.bf), name: k.full });
+    }
+    hits.sort((a, b) => a.rank - b.rank || b.t - a.t || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return hits.slice(0, max).map(h => h.p);
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = C;

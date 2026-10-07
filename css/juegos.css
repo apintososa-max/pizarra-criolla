@@ -78,6 +78,17 @@
 .gm-back { display: inline-flex; align-items: center; gap: 2px; min-height: 48px; margin: -12px 0 -12px -12px; padding: 0 12px 0 6px; font-weight: 600; }
 .gm-back:hover { text-decoration: none; }
 @media (hover: hover) { .gm-back:hover span { text-decoration: underline; } }
+/* a la derecha de la miga, el modo TV y compartir: 44 px de toque sin agrandar la fila (con la letra grande, si no caben
+   junto a la miga, bajan a la derecha) */
+.gm-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s2); }
+.gm-acts { display: inline-flex; align-items: center; gap: 4px; margin: -10px -10px -10px auto; }
+.gm-act {
+  display: grid; place-items: center; width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--accent); cursor: pointer; transition: transform var(--t-toque) var(--ease-out);
+}
+.gm-act:active { transform: scale(.92); }
+.gm-act .ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.skel .gm-act { color: var(--rule-2); }
 
 /* porcentaje de ganar: dos columnas fijas, el nombre no se corre cuando cambia el número */
 .wp-now { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s4); }
@@ -174,6 +185,11 @@
   font: 700 var(--fs-cap)/1.3 var(--font-body); text-transform: uppercase; letter-spacing: .06em;
 }
 .ch-tag-s { display: none; } /* "REP": solo cuando "Repetición" no cabe (abajo) */
+/* el momento de la banda (la pizarra no se ve): su título en lugar de la jugada, amarillo como la banda */
+.ch-mo { /* sin relleno arriba ni abajo: la línea mide lo mismo que la de la jugada */
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; border-radius: 999px;
+  background: var(--bulb); color: #1a1405; font: 800 var(--fs-sm)/1.3 var(--font-body); text-transform: uppercase; letter-spacing: .04em;
+}
 .ch-cnt { margin-left: auto; font: 800 var(--fs-h2)/1 var(--font-display); font-variant-numeric: tabular-nums; }
 .chapita .bases { flex: none; }
 .chapita .bases rect { stroke: var(--chalk-dim); }
@@ -471,7 +487,34 @@ button.cx[aria-expanded="true"] { background: rgba(255, 255, 255, .18); }
 .pl-x[open] .pl-more::after { transform: translateY(.15em) rotate(-135deg); }
 .pl-zone { max-width: 16rem; margin-inline: auto; padding: 0 var(--s3) var(--s3); }
 
+/* ---------- esqueleto de un juego en vivo (js/juego.js: juegoVivo) ---------- */
+/* las carreras apagadas; el campo y la zona miden lo que sus dibujos (charts.js: el cuadro interior, 200 × 144 más el
+   botón "Ver defensa" debajo cuando el campo es angosto; la zona, ~134 × 147); la secuencia, una fila de fichas */
+.skel .sc-r, .skel .sc-dash { color: var(--board-2); }
+.skel .bl i { box-shadow: none; }
+.sk.sk-fld { width: 100%; aspect-ratio: 200 / 144; border-radius: 10px; }
+.sk.sk-zn { width: 100%; aspect-ratio: 134 / 147; border-radius: 10px; }
+.sk.sk-seq { width: 45%; height: calc(var(--fs-sm) * 1.75); }
+/* el hueco de "Ver defensa": el botón sale con el campo angosto (charts.js: pantalla de menos de 26,25rem) y va debajo
+   del campo, salvo que el campo mida 11rem o más (entonces va sobre la esquina y no suma alto) */
+@media (max-width: 26.24rem) {
+  .skel .tn-field::after { content: ""; display: block; height: max(24px, calc(var(--fs-cap) * 1.1 + 6px)); margin-top: 2px; }
+  @container (min-width: 11rem) { .skel .tn-field::after { content: none; } }
+}
+/* "En vivo" llena, en los dos temas, como la de verdad */
+.skel .board .pill.live { background: var(--live); border-color: var(--live); }
+@media (prefers-color-scheme: dark) { .skel .board .pill.live { background: var(--flag-r); border-color: var(--flag-r); } }
+
 /* ---------- letra grande en pantalla angosta ---------- */
+/* La pizarra de siempre muy angosta (360 o 412 px con la letra al 200 %): sin la insignia, así el nombre entero cabe
+   ("Magallanes" no se corta); las siglas siguen en la línea por inning. Lo de afuera es lo angosto (también para quien
+   no entiende las consultas de contenedor); la insignia sale con la pizarra de 12rem o más. */
+.board:not(.turno) .bt-row { grid-template-columns: minmax(0, 1fr) auto; }
+.board:not(.turno) .bt-row > .bt-abbr { display: none; }
+@container (min-width: 12rem) {
+  .board:not(.turno) .bt-row { grid-template-columns: auto 1fr auto; }
+  .board:not(.turno) .bt-row > .bt-abbr { display: inline-grid; }
+}
 /* La tarjeta: primero el récord baja a su propia línea (un número no se corta nunca: a 360 px «Magallanes 20-22»
    no cabe en una); más angosta, el récord se va y la columna de estado se angosta; si aún no cabe, la insignia
    (queda el nombre). */

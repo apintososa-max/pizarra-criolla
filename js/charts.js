@@ -5,8 +5,9 @@
      entrada) y un cursor que se arrastra; lo que queda después del cursor va tenue.
    - spray: el mapa de batazos.  - zone: la zona de strike del turno.  - field: el campo en tiza con la defensa.
    - line: una línea simple para acumulados (diferencial de carreras, promedio de un jugador).
-   winProb, spray, zone y field devuelven un controlador que sigue sirviendo aunque CH.responsive redibuje al girar el
-   teléfono: el cursor, el aro, un lanzamiento nuevo o un corredor cambian sin rehacer el SVG. */
+   - bump: la temporada fecha por fecha (el puesto de cada equipo).  - heat: el mapa de calor (carreras por inning).
+   winProb, spray, zone, field, bump y heat devuelven un controlador que sigue sirviendo aunque CH.responsive redibuje al
+   girar el teléfono: el cursor, el aro, un lanzamiento nuevo, un corredor o el equipo marcado cambian sin rehacer el SVG. */
 (function (root) {
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
@@ -523,6 +524,8 @@
   //   legend (false: sin la leyenda de texto).
   // Campo genérico en la escala de la API, visto desde detrás de home: home en ≈ (125,4; 198,3), 1 unidad ≈ 2,5 pies,
   // líneas de foul a 45°, cerca a 330 pies por las líneas y 400 al center (la API no trae las medidas de cada estadio).
+  // Cada equipo con su color y su forma (visitante, círculo; home club, cuadrado), para no depender solo del color. Los
+  // rótulos LF, CF y RF van en una franja arriba, fuera del área de los puntos: ningún jonrón ni etiqueta los tapa.
   // Devuelve { setHighlight(k), destroy() }; setHighlight mueve el aro sin rehacer el SVG.
   const HX = 125.42, HY = 198.27;
   function spray(box, points, o) {
@@ -535,8 +538,10 @@
     const fc = fsPx('--fs-cap');
     const W = innerW(box, 240, 320);
     const ux0 = HX - 106, ux1 = HX + 106, uy0 = HY - 184, uy1 = HY + 26;
-    const s = W / (ux1 - ux0), H = Math.round((uy1 - uy0) * s);
-    const X = u => (u - ux0) * s, Y = u => (u - uy0) * s;
+    // la franja de los rótulos de los jardines, arriba del campo
+    const band = Math.round(fc * 1.3 + 4);
+    const s = W / (ux1 - ux0), H = band + Math.round((uy1 - uy0) * s);
+    const X = u => (u - ux0) * s, Y = u => band + (u - uy0) * s;
     const pol = (r, a) => [HX + r * Math.sin(a * Math.PI / 180), HY - r * Math.cos(a * Math.PI / 180)];
     const P = q => `${f1(X(q[0]))} ${f1(Y(q[1]))}`;
     // cerca: 132 unidades (330 pies) en las esquinas y 160 (400) al center
@@ -548,23 +553,26 @@
     const b1 = pol(36, 45), b2 = pol(50.9, 0), b3 = pol(36, -45), mound = pol(24.2, 0);
     const bag = q => { const cx = X(q[0]), cy = Y(q[1]), h = 3.6; return `<path class="gs-bag" d="M${f1(cx)} ${f1(cy - h)} L${f1(cx + h)} ${f1(cy)} L${f1(cx)} ${f1(cy + h)} L${f1(cx - h)} ${f1(cy)} Z"/>`; };
     const hx = X(HX), hy = Y(HY), pl = pol(132, -45), pr = pol(132, 45);
-    const posT = (q, t, anchor, dx) => `<text class="gs-pos" x="${f1(X(q[0]) + (dx || 0))}" y="${f1(Y(q[1]))}" text-anchor="${anchor}">${t}</text>`;
+    // LF, CF y RF en la franja de arriba, sobre su jardín (a ±32° del center)
+    const posY = f1(fc + 2), posT = (u, t, anchor) => `<text class="gs-pos" x="${f1(clamp(X(u), 2, W - 2))}" y="${posY}" text-anchor="${anchor}">${t}</text>`;
 
-    // puntos: relleno = hit, hueco = out o error, más grande = jonrón; del color del equipo
+    // puntos: relleno = hit, hueco = out o error, más grande = jonrón; del color del equipo, con su forma (el home club
+    // en un cuadrado de la misma área que el círculo)
     const vis = (points || []).filter(p => p && p.x != null && p.y != null && (!o.side || p.side === o.side));
     const sc = clamp(s / 1.5, .9, 1.3);
     const pos = vis.map(p => {
       const r = (p.hr ? 6.5 : 4.6) * sc;
-      return { p, k: p.k, r, x: clamp(X(p.x), r + 1, W - r - 1), y: clamp(Y(p.y), r + 1, H - r - 1) };
+      return { p, k: p.k, r, x: clamp(X(p.x), r + 1, W - r - 1), y: clamp(Y(p.y), band + r + 1, H - r - 1) };
     });
     const rank = p => (p.hr ? 2 : p.hit ? 1 : 0); // los huecos abajo, los jonrones encima
     const dots = pos.slice().sort((a, b) => rank(a.p) - rank(b.p) || a.k - b.k).map(q => {
-      const p = q.p;
-      return `<circle class="gs-p ${p.hit ? 'hit' : 'out'} ${p.side === 'away' ? 'a' : 'h'}${p.hr ? ' hr' : ''}" cx="${f1(q.x)}" cy="${f1(q.y)}" r="${f1(q.r)}" data-k="${q.k}"/>`;
+      const p = q.p, cls = `gs-p ${p.hit ? 'hit' : 'out'} ${p.side === 'away' ? 'a' : 'h'}${p.hr ? ' hr' : ''}`;
+      if (p.side === 'home') { const a = q.r * .886; return `<rect class="${cls}" x="${f1(q.x - a)}" y="${f1(q.y - a)}" width="${f1(2 * a)}" height="${f1(2 * a)}" rx="1.5" data-k="${q.k}"/>`; }
+      return `<circle class="${cls}" cx="${f1(q.x)}" cy="${f1(q.y)}" r="${f1(q.r)}" data-k="${q.k}"/>`;
     }).join('');
     const sides = o.side ? [o.side] : ['away', 'home'];
     const teamOf = sd => o[sd] || (sd === 'away' ? 'Visitante' : 'Home club');
-    const legend = o.legend === false ? '' : `<p class="viz-key gs-key">${sides.map(sd => `<span><i class="gs-k hit ${sd === 'away' ? 'a' : 'h'}" aria-hidden="true"></i>${esc(teamOf(sd))}</span>`).join('')}` +
+    const legend = o.legend === false ? '' : `<p class="viz-key gs-key">${sides.map(sd => `<span><i class="gs-k hit ${sd === 'away' ? 'a' : 'h sq'}" aria-hidden="true"></i>${esc(teamOf(sd))}</span>`).join('')}` +
       '<span><i class="gs-k hit" aria-hidden="true"></i>relleno: hit</span><span><i class="gs-k out" aria-hidden="true"></i>hueco: out o error</span>' +
       '<span><i class="gs-k hr" aria-hidden="true"></i>más grande: jonrón</span></p>';
     // Para el lector de pantalla el mapa es una lista (role="listbox") con un batazo por opción, en el orden del juego;
@@ -581,7 +589,7 @@
   <line class="gs-foul" x1="${f1(hx)}" y1="${f1(hy)}" x2="${f1(X(pl[0]))}" y2="${f1(Y(pl[1]))}"/><line class="gs-foul" x1="${f1(hx)}" y1="${f1(hy)}" x2="${f1(X(pr[0]))}" y2="${f1(Y(pr[1]))}"/>
   <path class="gs-dia" d="M${P([HX, HY])} L${P(b1)} L${P(b2)} L${P(b3)} Z"/><circle class="gs-bag" cx="${f1(X(mound[0]))}" cy="${f1(Y(mound[1]))}" r="${f1(Math.max(2.5, 2.4 * s))}"/>
   ${bag(b1)}${bag(b2)}${bag(b3)}<path class="gs-bag" d="M${f1(hx - 3.4)} ${f1(hy - 3)} h6.8 v3 l-3.4 3.4 l-3.4 -3.4 z"/>
-  ${posT(pol(146, -45), 'LF', 'start', 6)}${posT(pol(170, 0), 'CF', 'middle')}${posT(pol(146, 45), 'RF', 'end', -6)}
+  ${posT(pol(150, -32)[0], 'LF', 'middle')}${posT(HX, 'CF', 'middle')}${posT(pol(150, 32)[0], 'RF', 'middle')}
   <g class="gs-dots">${dots}</g>
   <g class="gs-hl" visibility="hidden"><circle class="gs-ring"/><rect class="gs-lab-bg" rx="5"/><text class="gs-lab"></text></g>
   </g>
@@ -601,7 +609,7 @@
       ring.setAttribute('cx', f1(q.x)); ring.setAttribute('cy', f1(q.y)); ring.setAttribute('r', f1(q.r + 5));
       const t = labelOf(q), tw = textW(t, fc, .58) + 12, th = Math.round(fc * 1.7);
       const lx = clamp(q.x < W / 2 ? q.x + q.r + 9 : q.x - q.r - 9 - tw, 2, W - tw - 2);
-      const ly = clamp(q.y - th / 2, 2, H - th - 2);
+      const ly = clamp(q.y - th / 2, band + 2, H - th - 2); // nunca sobre la franja de LF, CF y RF
       lbg.setAttribute('x', f1(lx)); lbg.setAttribute('y', f1(ly)); lbg.setAttribute('width', f1(tw)); lbg.setAttribute('height', th);
       lt.setAttribute('x', f1(lx + 6)); lt.setAttribute('y', f1(ly + th / 2 + fc * .36));
       lt.textContent = t;
@@ -894,7 +902,10 @@
   // ---------- el campo en tiza ----------
   // s: { defense (salida de C.defenseAt o linescore.defense), bases [b1, b2, b3] con {id, fullName} o null,
   //      batter {id, fullName}, batSide ('L' | 'R'), lastHit {x, y, traj} (coordenadas de la API) o null }
-  // o: { narrow: true/false (por defecto, pantalla de menos de 26,25rem: 420 px con la letra normal) }.
+  // o: { narrow: true/false (por defecto, pantalla de menos de 26,25rem: 420 px con la letra normal),
+  //      defensa: true (siempre los apellidos de la defensa) | false (solo los puntos de las posiciones) | sin pasar
+  //      (automático: los apellidos si caben sin pisarse, si no los puntos; con "Ver defensa" abierto, siempre) }.
+  //      El svg lleva data-defensa="nombres", "puntos" o "no" (angosto cerrado, o sin defensa).
   // Visto desde detrás de home, con home abajo: el derecho batea a la izquierda del plato y el zurdo a la derecha.
   // Cada corredor va afuera de su base (1.ª a la derecha, 3.ª a la izquierda, 2.ª arriba); si no cabe, primero se corta
   // el apellido y solo después la ficha sube junto a la base, siempre del lado de afuera.
@@ -936,7 +947,7 @@
     box.innerHTML = `<div class="gf-pan"><svg class="gf-svg${narrow ? ' gf-angosto' : ''}" id="${id}" role="img" focusable="false" aria-label="Campo"
   style="--gf-cs:${f1(cs)}px;--gf-cd:${f1(cd)}px">
   <path class="gf-of"/><path class="gf-in"/><path class="gf-dia"/><circle class="gf-mound"/>
-  <g class="gf-hit" visibility="hidden"><path class="gf-hit-l"/><circle class="gf-hit-d"/><text class="gf-hit-t" text-anchor="middle"></text></g>
+  <g class="gf-hit" visibility="hidden"><path class="gf-hit-l"/><circle class="gf-hit-d"/><path class="gf-hit-a" visibility="hidden"/><text class="gf-hit-t" text-anchor="middle"></text></g>
   <g class="gf-defs">${FPOS.map(p => `<g class="gf-pos" visibility="hidden"><circle class="gf-dot" r="2.6"/><text class="gf-def" text-anchor="middle"></text></g>`).join('')}</g>
   <path class="gf-base" data-base="1"/><path class="gf-base" data-base="2"/><path class="gf-base" data-base="3"/><path class="gf-home"/>
   ${[0, 1, 2].map(() => '<g class="gf-run" visibility="hidden"><rect/><text text-anchor="middle"></text></g>').join('')}
@@ -947,7 +958,7 @@
     const of = q1('.gf-of'), inf = q1('.gf-in'), dia = q1('.gf-dia'), mound = q1('.gf-mound'), home = q1('.gf-home');
     const bases = qa('.gf-base'), runs = qa('.gf-run'), defs = qa('.gf-pos'), batG = q1('.gf-bat');
     if (btn && focoBtn) { try { btn.focus({ preventScroll: true }); } catch (e) { btn.focus(); } }
-    const hitG = q1('.gf-hit'), hitL = hitG.querySelector('path'), hitD = hitG.querySelector('circle'), hitT = hitG.querySelector('text');
+    const hitG = q1('.gf-hit'), hitL = hitG.querySelector('.gf-hit-l'), hitD = hitG.querySelector('circle'), hitA = hitG.querySelector('.gf-hit-a'), hitT = hitG.querySelector('text');
     // ancho medio de una letra de cada estilo (se mide una vez al dibujar y otra cuando terminan de llegar las fuentes)
     const em = { run: .6, def: .56 };
     const measure = () => {
@@ -1003,6 +1014,7 @@
         placed.push([cx - bh, cy - bh, cx + bh, cy + bh]);
       });
       placed.push([hx - bh, hy - bh, hx + bh, hy + bh]);
+      const nFijas = placed.length; // las bases y el plato: lo demás son textos
       const chipH = Math.round(fsm * 1.5), gap = 3, pad = 10, cw = fsm * em.run;
       const hits = b => placed.some(q => b[0] < q[2] - .5 && b[2] > q[0] + .5 && b[1] < q[3] - .5 && b[3] > q[1] + .5);
       const inside = b => b[0] >= 0 && b[2] <= W && b[1] >= 0 && b[3] <= H;
@@ -1083,18 +1095,73 @@
       if (lh && lh.x != null && lh.y != null) {
         const [ux, uy, ft] = hitPt(+lh.x, +lh.y), x1 = X(ux), y1 = Y(uy), dx = x1 - hx, dy = y1 - hy;
         const tr = String(lh.traj || ''), fly = /fly_ball|popup/.test(tr), grd = /ground|bunt_grounder/.test(tr);
-        let d = `M${f1(hx)} ${f1(hy - bh)}`;
+        const p0 = [hx, hy - bh], p2 = [x1, y1];
+        let p1 = null;
         if (fly) {
           const k = .2, nx = dx >= 0 ? dy : -dy, ny = dx >= 0 ? -dx : dx; // se abomba hacia el center
-          d += `Q${f1((hx + x1) / 2 + nx * k)} ${f1((hy + y1) / 2 + ny * k)} ${f1(x1)} ${f1(y1)}`;
-        } else d += `L${f1(x1)} ${f1(y1)}`;
+          p1 = [(hx + x1) / 2 + nx * k, (hy + y1) / 2 + ny * k];
+        }
+        const at = t => (p1 ? [(1 - t) * (1 - t) * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0], (1 - t) * (1 - t) * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]]
+          : [p0[0] + (p2[0] - p0[0]) * t, p0[1] + (p2[1] - p0[1]) * t]);
+        // Si cae fuera de lo que se ve (el cuadro interior del campo angosto, o un batazo muy largo), la trayectoria llega
+        // hasta el borde, a 5 px, y termina en una flecha con su rótulo adentro ("≈380 pies", o "Jonrón ≈380 pies"): antes
+        // se cortaba en el borde y un jonrón por la línea parecía una raya de cal.
+        const m = 5, adentro = q => q[0] >= m && q[0] <= W - m && q[1] >= m && q[1] <= H - m;
+        let tEnd = 1;
+        if (!adentro(p2)) {
+          let a = 0, b = 1;
+          for (let j = 1; j <= 48; j++) { if (!adentro(at(j / 48))) { a = (j - 1) / 48; b = j / 48; break; } }
+          for (let j = 0; j < 14; j++) { const t = (a + b) / 2; if (adentro(at(t))) a = t; else b = t; }
+          tEnd = a;
+        }
+        const out = tEnd < 1, e = at(tEnd);
+        let d = `M${f1(p0[0])} ${f1(p0[1])}`;
+        if (p1) { const c = [p0[0] + (p1[0] - p0[0]) * tEnd, p0[1] + (p1[1] - p0[1]) * tEnd]; d += `Q${f1(c[0])} ${f1(c[1])} ${f1(e[0])} ${f1(e[1])}`; } // de Casteljau
+        else d += `L${f1(e[0])} ${f1(e[1])}`;
         const key = d;
         hitL.setAttribute('d', d);
         hitL.setAttribute('class', 'gf-hit-l ' + (fly ? 'fly' : grd ? 'ground' : 'line'));
         hitD.setAttribute('cx', f1(x1)); hitD.setAttribute('cy', f1(y1)); hitD.setAttribute('r', f1(clamp(3.5 * sc, 3.5, 6)));
-        // la distancia, junto a donde cayó, solo si cabe sin tapar nada (si cayó fuera de lo que se ve, la trayectoria sola)
+        hitD.setAttribute('visibility', out ? 'hidden' : 'visible');
+        if (out) {
+          // la flecha: punta en el borde, en la dirección en que iba la bola
+          const tg = p1 ? [2 * (1 - tEnd) * (p1[0] - p0[0]) + 2 * tEnd * (p2[0] - p1[0]), 2 * (1 - tEnd) * (p1[1] - p0[1]) + 2 * tEnd * (p2[1] - p1[1])] : [p2[0] - p0[0], p2[1] - p0[1]];
+          const L = Math.hypot(tg[0], tg[1]) || 1, u0 = tg[0] / L, u1 = tg[1] / L, al = 8, aw = 4.5;
+          hitA.setAttribute('d', `M${f1(e[0])} ${f1(e[1])}L${f1(e[0] - u0 * al - u1 * aw)} ${f1(e[1] - u1 * al + u0 * aw)}L${f1(e[0] - u0 * al + u1 * aw)} ${f1(e[1] - u1 * al - u0 * aw)}Z`);
+          hitA.removeAttribute('visibility');
+        } else hitA.setAttribute('visibility', 'hidden');
+        // la distancia, junto a donde cayó, solo si cabe sin tapar nada; si cayó afuera, junto a la flecha ("Jonrón
+        // ≈420 pies" si lastHit trae hr o event; el tipo de batazo ya lo dice la raya), o nada si no cabe
         let dist = '';
-        if (!grd && ft >= 60 && x1 >= 0 && x1 <= W && y1 >= 0 && y1 <= H) {
+        if (out && !grd && ft >= 60) {
+          const corto = `≈${Math.round(ft / 10) * 10} pies`, h = fc * 1.3;
+          const hr = !!lh.hr || /^home[_ ]run$/i.test(String(lh.event || ''));
+          const tg = [e[0] - p0[0], e[1] - p0[1]], L = Math.hypot(tg[0], tg[1]) || 1, u0 = tg[0] / L, u1 = tg[1] / L;
+          const arriba = e[1] <= m + .5, lado = e[0] <= m + .5 ? 1 : e[0] >= W - m - .5 ? -1 : 0;
+          // el rótulo tampoco pisa la raya del batazo (ni la flecha)
+          const raya = Array.from({ length: 31 }, (_, j) => at(tEnd * j / 30));
+          const pisa = q => raya.some(r => r[0] > q[0] - 3 && r[0] < q[2] + 3 && r[1] > q[1] - 3 && r[1] < q[3] + 3);
+          for (const t of hr ? [`Jonrón ${corto}`, 'Jonrón'] : [corto]) {
+            const w = textW(t, fc, .56);
+            // al lado de la flecha, sobre el borde por donde salió (primero del lado hacia donde iba la bola: del otro
+            // viene la raya); si no, hacia adentro a un lado o al otro de la trayectoria, o centrado junto a ese borde
+            const cands = [], sx = u0 >= 0 ? 1 : -1, sy = u1 <= 0 ? -1 : 1;
+            if (arriba) cands.push([e[0] + sx * (10 + w / 2), e[1] + h / 2 + 2], [e[0] - sx * (10 + w / 2), e[1] + h / 2 + 2]);
+            if (lado) cands.push([e[0] + lado * (w / 2 + 2), e[1] + sy * (12 + h / 2)], [e[0] + lado * (w / 2 + 2), e[1] - sy * (12 + h / 2)]);
+            // junto a la punta y un poco más arriba (la raya llega desde abajo)
+            const yt = clamp(e[1] - h / 2, h / 2 + 2, H - h / 2 - 2);
+            cands.push([e[0] + 12 + w / 2, yt], [e[0] - 12 - w / 2, yt]);
+            cands.push([e[0] - u0 * (h + 8) - u1 * (w / 2 + 8), e[1] - u1 * (h + 8) + u0 * (w / 2 + 8)], [e[0] - u0 * (h + 8) + u1 * (w / 2 + 8), e[1] - u1 * (h + 8) - u0 * (w / 2 + 8)],
+              [clamp(e[0], w / 2 + 2, W - w / 2 - 2), e[1] < H / 2 ? e[1] + h + 10 : e[1] - h - 10]);
+            const b = cands.map(c => [c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2]).find(q => inside(q) && !hits(q) && !pisa(q));
+            if (b) {
+              placed.push(b);
+              hitT.setAttribute('x', f1((b[0] + b[2]) / 2)); hitT.setAttribute('y', f1(b[1] + h / 2 + fc * .36));
+              dist = t;
+              break;
+            }
+          }
+        } else if (!out && !grd && ft >= 60 && x1 >= 0 && x1 <= W && y1 >= 0 && y1 <= H) {
           const t = `≈${Math.round(ft / 10) * 10} pies`, w = textW(t, fc, .56), h = fc * 1.3;
           const b = [[x1 + (dx >= 0 ? -1 : 1) * (w / 2 + 9), y1 - h * .6], [x1, y1 - h - 4], [x1, y1 + h + 4], [x1 + (dx >= 0 ? 1 : -1) * (w / 2 + 9), y1]]
             .map(c => [c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2]).find(q => inside(q) && !hits(q));
@@ -1111,21 +1178,44 @@
         }
         hitG.removeAttribute('visibility');
       } else { hitG.setAttribute('visibility', 'hidden'); hitG.removeAttribute('data-key'); }
-      // la defensa: un punto en la posición típica y el apellido debajo (o encima, o a un lado, si choca)
-      const defH = Math.round(fsd * 1.25);
-      FPOS.forEach((p, i) => {
-        const g = defs[i], who = st.defense && st.defense[p[0]], nm = who && surname(who.fullName);
-        if (!showDef || !nm) { g.setAttribute('visibility', 'hidden'); return; }
-        const cx = X(p[2]), cy = Y(p[3]), w = textW(nm, fsd, em.def) + 6, dot = g.querySelector('circle'), tx = g.querySelector('text');
-        const pitcher = p[0] === 'pitcher', catcher = p[0] === 'catcher';
-        const b = place(w, defH, catcher ? [[cx, hy + bh + 3 + defH / 2], [cx + bh + 8 + w / 2, hy + defH]] : [
-          [cx, cy + (pitcher ? 6 : 5) + defH / 2], [cx, cy - 5 - defH / 2], [cx + 6 + w / 2, cy], [cx - 6 - w / 2, cy]]);
-        dot.setAttribute('cx', f1(cx)); dot.setAttribute('cy', f1(cy));
-        dot.setAttribute('visibility', pitcher || catcher ? 'hidden' : 'visible');
-        tx.setAttribute('x', f1((b[0] + b[2]) / 2)); tx.setAttribute('y', f1(b[1] + defH / 2 + fsd * .36));
-        tx.textContent = nm;
+      // La defensa: un punto en la posición típica y el apellido debajo (o encima, o a un lado, si choca). o.defensa:
+      // true, siempre los apellidos (como antes); false, solo los puntos; sin la opción, los apellidos solo si el campo
+      // mide 10 letras de alto o más y caben todos sin pisarse entre ellos ni pisar las fichas o la distancia (si no,
+      // solo los puntos: campo chico con la letra grande, como en el modo TV). Con "Ver defensa" abierto, la persona
+      // los pidió: van siempre. Los corredores y el bateador siguen siempre; la defensa sigue en el texto del lector.
+      const defH = Math.round(fsd * 1.25), antesDef = placed.length, pedida = o.defensa === true || (o.defensa !== false && open);
+      let nombres = pedida || (o.defensa !== false && H >= 10 * fsd);
+      // un apellido pisa a otro texto (otro apellido, una ficha o la distancia) si se tocan sus letras, sin el aire de
+      // cada lado; rozar la esquina de una base no cuenta (la base es un rombo dentro de su caja)
+      const pisa = b => placed.some((q, k) => k >= nFijas && q !== b && Math.min(b[2] - 2, q[2]) - Math.max(b[0] + 2, q[0]) > 0 && Math.min(b[3] - 1, q[3]) - Math.max(b[1] + 1, q[1]) > 0);
+      const lugar = FPOS.map(p => {
+        const who = st.defense && st.defense[p[0]], nm = who && surname(who.fullName);
+        if (!showDef || !nm) return null;
+        const cx = X(p[2]), cy = Y(p[3]), catcher = p[0] === 'catcher';
+        let b = null;
+        if (nombres) {
+          const w = textW(nm, fsd, em.def) + 6;
+          // el receptor, debajo del plato (centrado o corrido a un lado, lejos de la ficha del bateador) o a un lado
+          const yc = hy + bh + 3 + defH / 2;
+          b = place(w, defH, catcher ? [[cx, yc], [cx - w / 2 + bh, yc], [cx + w / 2 - bh, yc], [cx + bh + 8 + w / 2, hy + defH], [cx - bh - 8 - w / 2, hy + defH]] : [
+            [cx, cy + (p[0] === 'pitcher' ? 6 : 5) + defH / 2], [cx, cy - 5 - defH / 2], [cx + 6 + w / 2, cy], [cx - 6 - w / 2, cy]]);
+          if (!pedida && pisa(b)) nombres = false;
+        }
+        return { nm, cx, cy, b, sinPunto: p[0] === 'pitcher' || catcher };
+      });
+      if (!nombres) placed.length = antesDef; // sin apellidos, sus cajas no ocupan lugar
+      lugar.forEach((q, i) => {
+        const g = defs[i], dot = g.querySelector('circle'), tx = g.querySelector('text');
+        if (!q || (!nombres && q.sinPunto)) { g.setAttribute('visibility', 'hidden'); return; }
+        dot.setAttribute('cx', f1(q.cx)); dot.setAttribute('cy', f1(q.cy));
+        dot.setAttribute('visibility', q.sinPunto ? 'hidden' : 'visible');
+        if (nombres) {
+          tx.setAttribute('x', f1((q.b[0] + q.b[2]) / 2)); tx.setAttribute('y', f1(q.b[1] + defH / 2 + fsd * .36));
+          tx.textContent = q.nm;
+        } else tx.textContent = '';
         g.removeAttribute('visibility');
       });
+      svg.setAttribute('data-defensa', !showDef || !lugar.some(Boolean) ? 'no' : nombres ? 'nombres' : 'puntos');
       svg.setAttribute('aria-label', aria(st));
       if (btn) {
         btn.textContent = open ? 'Ocultar defensa' : 'Ver defensa';
@@ -1250,6 +1340,515 @@
     svg.addEventListener('blur', () => show(null));
   }
 
+  // ---------- la temporada fecha por fecha: los puestos ----------
+  // data: salida de C.standingsByDate: { dates: ['AAAA-MM-DD'…], teams: { id: [{ date, pos, w, l, pct, gb }] } }.
+  // o: abbr ({ id: 'MAG' }), highlight (id del equipo marcado; null: ninguno), onPick(id) (la persona marcó otro equipo:
+  //    tocó su línea o su sigla, o usó las flechas arriba y abajo), zones (opcional, [4, 6]: los puestos 1 a 4 van en el
+  //    amarillo de la tabla y 5 y 6 en su azul claro, con una raya entre zonas; [2] en el Round Robin), names
+  //    (opcional, { id: 'Cardenales' }: lo que oye el lector en vez de las siglas; en el dibujo siguen las siglas).
+  // Todas las líneas en gris neutro (--g-bump) y la marcada en el acento: no hay paleta de 8 equipos que pase la prueba
+  // de daltonismo. La sigla de cada equipo va al final de su línea, a la altura de su puesto (una fila por puesto: no se
+  // enciman; si dos terminan en el mismo puesto, se separan y una rayita las une a su línea).
+  // Tocar o arrastrar de lado, sobre las fechas o sobre las líneas, pone el cursor en una fecha: arriba la fecha (y el
+  // puesto del marcado) y en cada puesto la sigla de quien lo tenía ese día. Tocar otra vez esa fecha, o la píldora, lo
+  // quita. Para el lector y el teclado es un deslizador por las fechas (role="slider", el resumen en aria-describedby):
+  // flechas a los lados, Re Pág y Av Pág de a 7 fechas, Inicio y Fin; arriba y abajo marcan al equipo de arriba o de
+  // abajo; Escape quita el cursor.
+  // Devuelve { setHighlight(id), destroy() }: setHighlight cambia el marcado sin rehacer el SVG (y sin llamar a onPick).
+  const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const MES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  // '2025-11-15' → "15 nov" (largo: "15 de noviembre")
+  const fechaTxt = (iso, largo) => {
+    const t = String(iso || ''), m = +t.slice(5, 7) - 1, d = +t.slice(8, 10);
+    return m >= 0 && m < 12 && d ? (largo ? `${d} de ${MES_L[m]}` : `${d} ${MES[m]}`) : t;
+  };
+  function bump(box, data, o) {
+    o = o || {};
+    const K = ctl(box, 'bump', ['setHighlight']), S = K.st;
+    box.classList.add('viz', 'gb');
+    const dates = ((data && data.dates) || []).map(String), D = dates.length;
+    const TD = (data && data.teams) || {};
+    const ids = Object.keys(TD).map(Number).filter(n => isFinite(n));
+    const abOf = id => { const a = o.abbr || {}; return String(a[id] || a[String(id)] || id); };
+    // para el lector, el nombre corto si lo hay ("Cardenales"): las siglas se leen como palabras ("car", "mar")
+    const nameOf = id => { const n = o.names || {}; return String(n[id] || n[String(id)] || abOf(id)); };
+    // el registro de cada equipo en cada fecha (por su fecha: no hace falta que vengan alineados con dates)
+    const ix = new Map(dates.map((d, i) => [d, i]));
+    const P = new Map();
+    let nPos = ids.length;
+    ids.forEach(id => {
+      const a = new Array(D).fill(null);
+      (Array.isArray(TD[id]) ? TD[id] : []).forEach((e, j) => {
+        const i = e && e.date != null && ix.has(String(e.date)) ? ix.get(String(e.date)) : j;
+        if (e && i < D && +e.pos >= 1) { a[i] = e; nPos = Math.max(nPos, +e.pos); }
+      });
+      P.set(id, a);
+    });
+    // en cada fecha, quién tenía cada puesto
+    const byPos = dates.map((_, i) => {
+      const m = new Map();
+      ids.forEach(id => { const e = P.get(id)[i]; if (e && !m.has(+e.pos)) m.set(+e.pos, id); });
+      return m;
+    });
+    const lastOf = id => { const a = P.get(id); for (let i = D - 1; i >= 0; i--) if (a[i]) return { i, e: a[i] }; return null; };
+    const okId = v => (v == null || v === '' || !P.has(+v) ? null : +v);
+    // si el marcado que se pasa cambió, manda ese; si es el mismo (redibujo al girar), queda el que eligió la persona
+    S.hl = !('given' in S) || o.highlight !== S.given ? okId(o.highlight) : okId(S.hl);
+    S.given = o.highlight;
+    if (S.cur != null && !(S.cur < D)) S.cur = null;
+    if (!D || !ids.length) {
+      // antes de la primera fecha con juegos: un aviso en lugar del gráfico
+      box.innerHTML = '<p class="viz-key gb-vacio">Todavía sin juegos.</p>';
+      K.impl.setHighlight = v => { S.hl = okId(v); };
+      return K.api;
+    }
+
+    const fc = fsPx('--fs-cap'), fsm = fsPx('--fs-sm');
+    const W = innerW(box, 240, 320);
+    // una fila por puesto, alta para la sigla a --fs-sm y para la ficha del cursor a --fs-cap
+    const rowH = Math.max(22, Math.round(fsm * 1.75));
+    const pillH = Math.round(fc * 1.75), padT = pillH + 6;
+    const rkW = Math.round(Math.max(fc * 1.7, textW(String(nPos), fc, .62) + 8)), rkH = Math.min(rowH - 4, Math.round(fc * 1.6));
+    const padL = rkW + 8;
+    const labW = Math.max(fsm * 1.8, ...ids.map(id => textW(abOf(id), fsm, .68)));
+    const plotW = Math.max(60, W - padL - Math.round(labW + 18)), plotH = nPos * rowH;
+    const x = i => (D > 1 ? padL + (i / (D - 1)) * plotW : padL + plotW);
+    const y = p => padT + (p - .5) * rowH;
+    const axTop = padT + plotH, H = axTop + Math.max(28, Math.round(fc * 2.4));
+    const labX = padL + plotW + 10;
+
+    // las líneas: de fecha en fecha, el cambio de puesto en una S (horizontal en cada fecha); un punto suelto, visible
+    const dOf = id => {
+      const a = P.get(id);
+      let s = '', prev = null, run = 0;
+      for (let i = 0; i <= D; i++) {
+        const e = i < D ? a[i] : null;
+        if (!e) { if (run === 1) s += 'h0.01'; prev = null; run = 0; continue; }
+        const px = x(i), py = y(+e.pos);
+        if (!prev) s += `M${f1(px)} ${f1(py)}`;
+        else if (Math.abs(prev[1] - py) < .05) s += `H${f1(px)}`;
+        else { const mx = f1((prev[0] + px) / 2); s += `C${mx} ${f1(prev[1])} ${mx} ${f1(py)} ${f1(px)} ${f1(py)}`; }
+        prev = [px, py];
+        run++;
+      }
+      return s;
+    };
+    const DS = new Map(ids.map(id => [id, dOf(id)]));
+
+    // siglas al final, a la altura de su último puesto; si dos quedan a menos de una línea de letra, se separan
+    const labs = ids.map(id => { const L = lastOf(id); return L ? { id, t: abOf(id), y0: y(+L.e.pos), xe: x(L.i) } : null; })
+      .filter(Boolean).sort((a, b) => a.y0 - b.y0 || a.id - b.id);
+    const gapY = Math.max(14, fsm * 1.25);
+    labs.forEach((q, j) => { q.y = j ? Math.max(q.y0, labs[j - 1].y + gapY) : q.y0; });
+    for (let j = labs.length - 1; j >= 0; j--) {
+      const lim = j === labs.length - 1 ? padT + plotH - gapY / 2 : labs[j + 1].y - gapY;
+      if (labs[j].y > lim) labs[j].y = lim;
+    }
+    const labsSvg = labs.map(q => (Math.abs(q.y - q.y0) > 1 ? `<line class="gb-lead" x1="${f1(q.xe + 3)}" x2="${f1(labX - 3)}" y1="${f1(q.y0)}" y2="${f1(q.y)}"/>` : '') +
+      `<text class="gb-lab" data-id="${q.id}" x="${f1(labX)}" y="${f1(q.y + fsm * .36)}">${esc(q.t)}</text>`).join('');
+
+    // el puesto a la izquierda, en un cuadrito con el color de su zona si hay zonas (como en la tabla)
+    const zones = (Array.isArray(o.zones) ? o.zones : []).map(Number).filter(z => z >= 1).sort((a, b) => a - b);
+    const zoneOf = p => (zones.length && p <= zones[0] ? 'q1' : zones.length > 1 && p <= zones[1] ? 'q2' : '');
+    let rk = '';
+    for (let p = 1; p <= nPos; p++) {
+      const z = zoneOf(p), cy = y(p);
+      rk += `<g class="gb-rk${z ? ' ' + z : ''}">${z ? `<rect x="1" y="${f1(cy - rkH / 2)}" width="${rkW - 2}" height="${rkH}" rx="4"/>` : ''}` +
+        `<text x="${f1(1 + (rkW - 2) / 2)}" y="${f1(cy + fc * .36)}" text-anchor="middle">${p}</text></g>`;
+    }
+    const sep = zones.filter(z => z < nPos).map(z => { const yy = f1(padT + z * rowH); return `<line class="gb-zn" x1="${padL}" x2="${f1(padL + plotW)}" y1="${yy}" y2="${yy}"/>`; }).join('');
+
+    // el eje de fechas: el nombre de cada mes donde empieza (si pisa al siguiente, se quita: el primer mes suele traer
+    // pocas fechas); con menos de dos meses, la primera y la última fecha
+    let ticks = [];
+    dates.forEach((d, i) => { if (!i || d.slice(0, 7) !== dates[i - 1].slice(0, 7)) ticks.push({ i, t: MES[+d.slice(5, 7) - 1] || '', a: 'start', grid: i > 0 }); });
+    const tickBox = t => { const w = textW(t.t, fc, .6), x0 = t.a === 'end' ? x(t.i) - w : x(t.i) + 3; return [x0, x0 + w]; };
+    ticks = ticks.filter((t, j) => j === ticks.length - 1 || tickBox(t)[1] + 6 <= tickBox(ticks[j + 1])[0]);
+    if (ticks.length && tickBox(ticks[ticks.length - 1])[1] > W) ticks[ticks.length - 1].a = 'end';
+    if (D === 1) ticks = [{ i: 0, t: fechaTxt(dates[0]), a: 'end' }];
+    else if (ticks.length < 2) {
+      ticks = [{ i: 0, t: fechaTxt(dates[0]), a: 'start' }, { i: D - 1, t: fechaTxt(dates[D - 1]), a: 'end' }];
+      if (tickBox(ticks[0])[1] + 6 > tickBox(ticks[1])[0]) ticks.shift();
+    }
+    const grid = ticks.filter(t => t.grid).map(t => `<line class="viz-grid" x1="${f1(x(t.i))}" x2="${f1(x(t.i))}" y1="${padT}" y2="${axTop}"/>`).join('');
+    const ax = ticks.map(t => `<text class="viz-tick" x="${f1(t.a === 'end' ? x(t.i) : x(t.i) + 3)}" y="${f1(axTop + fc + 6)}" text-anchor="${t.a}">${esc(t.t)}</text>`).join('');
+
+    // el cursor: la línea, una ficha por puesto con la sigla de quien lo tenía, la píldora con la fecha y el pulgar
+    const chipW = Math.round(Math.max(fc * 2, ...ids.map(id => textW(abOf(id), fc, .7))) + 10), chipH = Math.min(rowH - 4, Math.round(fc * 1.6));
+    let chips = '';
+    for (let p = 1; p <= nPos; p++) chips += `<g class="gb-chip" visibility="hidden"><rect width="${chipW}" height="${chipH}" rx="4"/><text text-anchor="middle"></text></g>`;
+    const id = 'gb' + (++uid);
+    const focoSvg = !!(document.activeElement && box.contains(document.activeElement));
+    const rol = `role="slider" tabindex="0" aria-label="Puestos fecha por fecha" aria-valuemin="1" aria-valuemax="${D}" aria-orientation="horizontal" aria-describedby="${id}d"`;
+    // en la franja de arriba (donde sale la píldora del cursor): qué es el eje de la izquierda y la fecha de las siglas
+    const ttlY = f1(1 + pillH / 2 + fc * .36);
+    const ttl = `<g class="gb-ttl"><text x="1" y="${ttlY}">Puesto</text><text x="${f1(W - 2)}" y="${ttlY}" text-anchor="end">${esc(fechaTxt(dates[D - 1]))}</text></g>`;
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="gb-svg" ${rol}>
+  ${ttl}${grid}<line class="viz-base" x1="${padL}" x2="${f1(padL + plotW)}" y1="${axTop}" y2="${axTop}"/>${rk}
+  <g class="gb-ls">${ids.map(i2 => `<path class="gb-l" d="${DS.get(i2)}"/>`).join('')}</g>${sep}
+  <g class="gb-on" visibility="hidden"><path class="gb-halo"/><path class="gb-l"/><circle class="gb-end" r="4.5"/></g>
+  <g class="gb-labs">${labsSvg}</g>${ax}
+  <g class="gb-cur" visibility="hidden"><line class="gb-cur-l" y1="${padT - 2}" y2="${axTop}"/>${chips}<circle class="gb-thumb" cy="${axTop}" r="4.5"/>
+    <rect class="gb-pill" y="1" height="${pillH}" rx="${pillH / 2}"/><text class="gb-pill-t" y="${f1(1 + pillH / 2 + fc * .36)}" text-anchor="middle"></text></g>
+  <rect class="gb-hit" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>
+</svg><p class="sr" id="${id}d"></p>`;
+
+    const svg = box.querySelector('svg'), desc = box.querySelector('.sr');
+    if (focoSvg) { try { svg.focus({ preventScroll: true }); } catch (e) { svg.focus(); } }
+    const onG = svg.querySelector('.gb-on'), onP = [...onG.querySelectorAll('path')], onEnd = onG.querySelector('circle');
+    const labEls = new Map([...svg.querySelectorAll('.gb-lab')].map(e => [+e.getAttribute('data-id'), e]));
+    const cur = svg.querySelector('.gb-cur'), curL = cur.querySelector('line'), thumb = cur.querySelector('.gb-thumb'), ttlG = svg.querySelector('.gb-ttl');
+    const pill = cur.querySelector('.gb-pill'), pillT = cur.querySelector('.gb-pill-t');
+    const chipEls = [...cur.querySelectorAll('.gb-chip')].map(g => [g, g.querySelector('rect'), g.querySelector('text')]);
+
+    const ordAt = i => [...byPos[i].entries()].sort((a, b) => a[0] - b[0]);
+    // "15 de noviembre: 1.º Tigres, 2.º Bravos, … Magallanes 8.º, 5-12" (con names; si no, las siglas)
+    const lectura = i => {
+      const e = S.hl != null ? P.get(S.hl)[i] : null;
+      return `${fechaTxt(dates[i], true)}: ${ordAt(i).map(([p, t]) => `${p}.º ${nameOf(t)}`).join(', ')}` +
+        (e ? `. ${nameOf(S.hl)} ${e.pos}.º, ${e.w}-${e.l}` : '');
+    };
+    const resumen = () => {
+      const fin = ids.map(t => [t, lastOf(t)]).filter(q => q[1]).sort((a, b) => a[1].e.pos - b[1].e.pos);
+      let s = `Puesto de cada equipo después de cada fecha, del ${fechaTxt(dates[0], true)} al ${fechaTxt(dates[D - 1], true)} (${plural(D, 'fecha', 'fechas')}). ` +
+        `Al cierre: ${fin.map(([t, L]) => `${L.e.pos}.º ${nameOf(t)}`).join(', ')}`;
+      if (S.hl != null) {
+        const a = P.get(S.hl).filter(Boolean), L = lastOf(S.hl);
+        if (L) s += `. ${nameOf(S.hl)}, marcado: terminó ${L.e.pos}.º (${L.e.w}-${L.e.l}); su mejor puesto fue ${Math.min(...a.map(e => +e.pos))}.º y el peor ${Math.max(...a.map(e => +e.pos))}.º`;
+      }
+      return s + '. Flechas a los lados para recorrer las fechas; arriba y abajo para marcar otro equipo; Escape quita la fecha';
+    };
+    const paintCur = () => {
+      const i = S.cur;
+      if (ttlG) ttlG.setAttribute('visibility', i == null ? 'visible' : 'hidden');
+      // con el cursor, las siglas del cierre se apagan: las fichas dicen quién iba en cada puesto ese día
+      svg.classList.toggle('gb-con-cursor', i != null);
+      if (i == null) cur.setAttribute('visibility', 'hidden');
+      else {
+        const cx = x(i), ccx = clamp(cx, padL + chipW / 2, padL + plotW - chipW / 2);
+        curL.setAttribute('x1', f1(cx)); curL.setAttribute('x2', f1(cx));
+        thumb.setAttribute('cx', f1(cx));
+        chipEls.forEach(([g, r, t], j) => {
+          const who = byPos[i].get(j + 1);
+          if (who == null) { g.setAttribute('visibility', 'hidden'); return; }
+          const cy = y(j + 1), ab = abOf(who);
+          r.setAttribute('x', f1(ccx - chipW / 2)); r.setAttribute('y', f1(cy - chipH / 2));
+          t.setAttribute('x', f1(ccx)); t.setAttribute('y', f1(cy + fc * .36));
+          if (t.textContent !== ab) t.textContent = ab;
+          g.classList.toggle('on', who === S.hl);
+          g.removeAttribute('visibility');
+        });
+        // la píldora: la fecha y, si hay marcado, su puesto y su récord ese día
+        const e = S.hl != null ? P.get(S.hl)[i] : null;
+        // (si no cabe en el ancho, solo la fecha: la ficha marcada ya dice el puesto)
+        let tx = fechaTxt(dates[i]) + (e ? ` · ${abOf(S.hl)} ${e.pos}.º (${e.w}-${e.l})` : ''), w = Math.round(textW(tx, fc, .6) + 16);
+        if (w > W - 2) { tx = fechaTxt(dates[i]); w = Math.round(textW(tx, fc, .6) + 16); }
+        const lx = clamp(cx, w / 2 + 1, W - w / 2 - 1);
+        pillT.textContent = tx;
+        pillT.setAttribute('x', f1(lx));
+        pill.setAttribute('x', f1(lx - w / 2)); pill.setAttribute('width', w);
+        cur.removeAttribute('visibility');
+      }
+      const k = i == null ? D - 1 : i;
+      svg.setAttribute('aria-valuenow', String(k + 1));
+      svg.setAttribute('aria-valuetext', lectura(k));
+    };
+    const paintHL = anim => {
+      const h = S.hl;
+      if (h == null) onG.setAttribute('visibility', 'hidden');
+      else {
+        const d = DS.get(h), L = lastOf(h);
+        onP.forEach(p => p.setAttribute('d', d));
+        if (L) { onEnd.setAttribute('cx', f1(x(L.i))); onEnd.setAttribute('cy', f1(y(+L.e.pos))); onEnd.removeAttribute('visibility'); } else onEnd.setAttribute('visibility', 'hidden');
+        onG.removeAttribute('visibility');
+        if (anim) enter(onG, { opacity: 0 });
+      }
+      labEls.forEach((el, t) => el.classList.toggle('on', t === h));
+      if (desc) desc.textContent = resumen();
+      paintCur();
+    };
+    paintHL(false);
+    K.impl.setHighlight = v => { const h = okId(v); if (h === S.hl) return; S.hl = h; paintHL(false); };
+
+    const pick = t => {
+      if (t == null || t === S.hl) return;
+      S.hl = t;
+      paintHL(true);
+      if (typeof o.onPick === 'function') o.onPick(t);
+    };
+    const setCur = i => { S.cur = i; paintCur(); };
+    const hit = svg.querySelector('.gb-hit');
+    const toSvg = (cx, cy) => { const r = svg.getBoundingClientRect(), f = W / (r.width || W); return [(cx - r.left) * f, (cy - r.top) * f]; };
+    const idxAt = px => (D > 1 ? clamp(Math.round(((px - padL) / plotW) * (D - 1)), 0, D - 1) : 0);
+    const region = (px, py) => (py < padT - 2 ? 'top' : py > axTop + 2 ? 'axis' : px > padL + plotW + 4 ? 'labs' : 'plot');
+    // la línea más cercana al dedo a esa altura (la S entre dos fechas se aproxima con smoothstep)
+    const lineAt = (px, py) => {
+      const fi = D > 1 ? clamp(((px - padL) / plotW) * (D - 1), 0, D - 1) : 0, i0 = Math.floor(fi), i1 = Math.min(D - 1, i0 + 1);
+      const t = fi - i0, s = t * t * (3 - 2 * t);
+      let best = null, bd = Infinity;
+      ids.forEach(t2 => {
+        const a = P.get(t2), e0 = a[i0] || a[i1], e1 = a[i1] || a[i0];
+        if (!e0) return;
+        const d = Math.abs(y(+e0.pos) + (y(+e1.pos) - y(+e0.pos)) * s - py);
+        if (d < bd) { bd = d; best = t2; }
+      });
+      return bd <= rowH * .75 ? best : null;
+    };
+    const labAt = py => {
+      let best = null, bd = Infinity;
+      labs.forEach(q => { const d = Math.abs(q.y - py); if (d < bd) { bd = d; best = q.id; } });
+      return bd <= Math.max(rowH, 24) / 2 + 2 ? best : null;
+    };
+    // Arrastrar de lado mueve el cursor (una vez por cuadro). Con el dedo, primero se ve si el gesto es de lado o
+    // hacia arriba o abajo (el navegador desplaza la página); con el ratón, sobre las fechas arrastra de una vez.
+    let drag = null, want = null, rid = 0;
+    const frame = () => { rid = 0; if (want == null) return; const i = idxAt(toSvg(want, 0)[0]); want = null; if (i !== S.cur) setCur(i); };
+    const queue = cx => { want = cx; if (!rid) rid = raf(frame); };
+    K.offs.push(() => { if (rid) caf(rid); });
+    const grab = ev => { try { hit.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ } svg.classList.add('gb-drag'); };
+    K.on(hit, 'pointerdown', ev => {
+      if (ev.button > 0) return;
+      const [px, py] = toSvg(ev.clientX, ev.clientY);
+      drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, on: false, reg: region(px, py), px, py };
+      if (ev.pointerType !== 'touch' && drag.reg === 'axis') { drag.on = true; grab(ev); queue(ev.clientX); }
+    });
+    K.on(hit, 'pointermove', ev => {
+      if (!drag || ev.pointerId !== drag.id) return;
+      if (!drag.on) {
+        const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
+        if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
+        drag.on = true;
+        grab(ev);
+      }
+      queue(ev.clientX);
+    });
+    K.on(hit, 'pointerup', ev => {
+      if (!drag || ev.pointerId !== drag.id) return;
+      const g = drag;
+      drag = null;
+      svg.classList.remove('gb-drag');
+      if (g.on) { if (rid) { caf(rid); rid = 0; } frame(); return; }
+      // un toque: en las fechas pone (o quita, si es la misma) el cursor; arriba lo quita; en una línea o sigla, la marca
+      if (g.reg === 'axis') setCur(S.cur != null && Math.abs(x(S.cur) - g.px) <= 12 ? null : idxAt(g.px));
+      else if (g.reg === 'top') { if (S.cur != null) setCur(null); }
+      else pick(g.reg === 'labs' ? labAt(g.py) : lineAt(g.px, g.py));
+    });
+    K.on(hit, 'pointercancel', () => { drag = null; svg.classList.remove('gb-drag'); });
+    // teclado: un deslizador por las fechas; arriba y abajo cambian el marcado
+    const STEP = { ArrowRight: 1, ArrowLeft: -1, PageUp: 7, PageDown: -7, Home: -Infinity, End: Infinity };
+    K.on(svg, 'keydown', ev => {
+      if (ev.key in STEP) {
+        ev.preventDefault();
+        const base = S.cur == null ? D - 1 : S.cur, st = STEP[ev.key];
+        setCur(isFinite(st) ? clamp(base + st, 0, D - 1) : st < 0 ? 0 : D - 1);
+      } else if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        const order = ordAt(S.cur == null ? D - 1 : S.cur).map(q => q[1]), j = order.indexOf(S.hl), dn = ev.key === 'ArrowDown';
+        if (order.length) pick(order[j < 0 ? (dn ? 0 : order.length - 1) : clamp(j + (dn ? 1 : -1), 0, order.length - 1)]);
+      } else if (ev.key === 'Escape' && S.cur != null) {
+        ev.preventDefault();
+        setCur(null);
+      }
+    });
+    return K.api;
+  }
+
+  // ---------- mapa de calor ----------
+  // data: { rows: [{ label, values }], cols: ['1', …, '9', 'Ex'] }: una fila por serie (por ejemplo "Anotadas",
+  //   "Permitidas" y "Liga") con un valor por columna (null: sin dato).
+  // o: fmt(v) (el texto de cada celda; por defecto, con dos decimales), min y max (los extremos de la escala; si faltan,
+  //   los de los datos; lo que se pase toma el tono del extremo), onPick(r, c) (al tocar una celda, o Enter con el
+  //   teclado; r y c son los índices de data.rows y data.cols), label (qué se mide, para el lector: "Carreras por
+  //   inning, promedio por juego": el título de la tabla y el comienzo del nombre del dibujo), legend (false: sin la
+  //   escala "menos … más" debajo).
+  // Para el lector, una tabla oculta a la vista (caption con o.label, los innings como columnas y una fila por serie, con
+  // sus encabezados) y el dibujo como imagen con un nombre corto: lo que mide y el más alto.
+  // Escala de un solo tono en 6 pasos (--g-heat-1 … --g-heat-6, de poco a mucho; en oscuro lo poco se hunde en la noche),
+  // validada en claro y en oscuro, y el número de cada celda en su color (--g-on-heat-1 … 6: 4,5:1 o más). Tres formas
+  // según el ancho y la letra, sin bajar nunca de --fs-cap: los nombres a la izquierda (si sobra ancho), encima de cada
+  // fila, o la tabla dada vuelta (los innings hacia abajo, una columna por serie) cuando el número no cabe en la celda.
+  // Devuelve { destroy() }.
+  const HEAT_N = 6;
+  const colName = c => (/^\d+$/.test(c) ? `${c}.º` : /^ex/i.test(c) ? 'extrainnings' : c);
+  function heat(box, data, o) {
+    o = o || {};
+    const K = ctl(box, 'heat', []), S = K.st;
+    box.classList.add('viz', 'gh');
+    const cols = ((data && data.cols) || []).map(String), CN = cols.length;
+    const rows = ((data && data.rows) || []).map(r => ({
+      label: String((r && r.label) || ''),
+      v: cols.map((c, j) => { const v = r && r.values ? r.values[j] : null; return v == null || v === '' || !isFinite(+v) ? null : +v; })
+    }));
+    const R = rows.length;
+    if (!R || !CN) { box.innerHTML = '<p class="viz-key gh-vacio">Sin datos todavía.</p>'; return K.api; }
+    const fmt = typeof o.fmt === 'function' ? o.fmt : v => (+v).toFixed(2);
+    const all = [].concat(...rows.map(r => r.v)).filter(v => v != null);
+    const lo = o.min != null && o.min !== '' && isFinite(+o.min) ? +o.min : all.length ? Math.min(...all) : 0;
+    const hi = o.max != null && o.max !== '' && isFinite(+o.max) ? +o.max : all.length ? Math.max(...all) : 1;
+    const stepOf = v => (v == null ? -1 : hi > lo ? clamp(Math.floor(((v - lo) / (hi - lo)) * HEAT_N), 0, HEAT_N - 1) : Math.floor(HEAT_N / 2));
+    const txt = rows.map(r => r.v.map(v => (v == null ? '–' : String(fmt(v)))));
+    const pickable = typeof o.onPick === 'function' && R > 0 && CN > 0;
+    if (S.sel && !(S.sel[0] < R && S.sel[1] < CN)) S.sel = null;
+
+    const fc = fsPx('--fs-cap'), fsm = fsPx('--fs-sm');
+    const W = innerW(box, 200, 320);
+    const focoSvg = !!(document.activeElement && box.contains(document.activeElement));
+    const legend = o.legend === false ? '' : `<p class="viz-key gh-key" aria-hidden="true"><span>menos</span><span class="gh-ramp">${
+      Array.from({ length: HEAT_N }, (_, i) => `<i class="s${i}"></i>`).join('')}</span><span>más</span></p>`;
+    // Para el lector, una tabla de datos oculta a la vista (A6): se recorre celda por celda con cualquier lector. El
+    // dibujo queda como imagen con un nombre corto (lo que mide y el más alto).
+    const val = (ri, ci) => (txt[ri][ci] === '–' ? 'sin dato' : txt[ri][ci]);
+    const colHead = c => (/^\d+$/.test(c) ? `${c}.º` : /^ex/i.test(c) ? 'Extrainnings' : c);
+    const tabla = `<div class="sr"><table><caption>${esc(o.label || 'Mapa de calor')}</caption>` +
+      `<thead><tr><th scope="col">Inning</th>${cols.map(c => `<th scope="col">${esc(colHead(c))}</th>`).join('')}</tr></thead>` +
+      `<tbody>${rows.map((r, ri) => `<tr><th scope="row">${esc(r.label)}</th>${cols.map((c, ci) => `<td>${esc(val(ri, ci))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    box.innerHTML = `<svg class="gh-svg${pickable ? ' gh-pick' : ''}" role="img"${pickable ? ' tabindex="0"' : ''}><g class="gh-sonda" visibility="hidden"></g><g class="gh-g"></g>` +
+      `<rect class="gh-sel" visibility="hidden" rx="4"/></svg>${tabla}${legend}${pickable ? '<p class="sr" aria-live="polite"></p>' : ''}`;
+    const svg = box.querySelector('svg'), live = box.querySelector('p.sr');
+    if (focoSvg && pickable) { try { svg.focus({ preventScroll: true }); } catch (e) { svg.focus(); } }
+    // Los anchos de los textos con su letra de verdad, todos de una vez: se escriben todos en un grupo oculto y después
+    // se leen (un solo layout; antes era uno por texto). Sin dibujar (caja oculta), quedan las estimaciones.
+    const pedidos = [], medida = new Map();
+    const pide = (t, cls, px, em) => {
+      const k = `${cls}|${px}|${t}`;
+      if (!medida.has(k)) { medida.set(k, textW(t, px, em)); pedidos.push([k, t, cls, px]); }
+      return k;
+    };
+    const kNums = [...new Set([].concat(...txt))].map(t => pide(t, 'gh-n', fsm, .62));
+    const kLabs = rows.map(r => pide(r.label, 'gh-rl', fsm, .58));
+    const kCols = cols.map(c => pide(c, 'gh-cl', fc, .62));
+    // los títulos de la forma dada vuelta (a --fs-cap, en negrita), cada palabra, el espacio y el punto, para partirlos
+    const HD = 'gh-cl gh-hd';
+    const kHds = rows.map(r => [pide(r.label, HD, fc, .62), r.label.split(' ').map(w => pide(w, HD, fc, .62))]);
+    const kEsp = [pide('a a', HD, fc, .62), pide('aa', HD, fc, .62)], kPto = pide('.', HD, fc, .3);
+    const sonda = svg.querySelector('.gh-sonda');
+    sonda.innerHTML = pedidos.map(([, t, c, px]) => `<text class="${c}" style="font-size:${px}px">${esc(t)}</text>`).join('');
+    [...sonda.children].forEach((el, i) => {
+      let w = 0;
+      try { w = el.getComputedTextLength(); } catch (e) { /* sin dibujar */ }
+      if (w > 0) medida.set(pedidos[i][0], w);
+    });
+    sonda.textContent = '';
+    const mw = k => medida.get(k);
+    const numW = Math.max(0, ...kNums.map(mw)), labW = Math.max(0, ...kLabs.map(mw));
+    // la forma: nombres a la izquierda, encima de cada fila o la tabla dada vuelta; la letra del número, --fs-sm o --fs-cap
+    const gap = 2, pad = 8;
+    const fits = (cw, px) => numW * (px / fsm) + pad <= cw;
+    const cwIzq = (W - (labW + 10) - (CN - 1) * gap) / Math.max(1, CN), cwArr = (W - (CN - 1) * gap) / Math.max(1, CN);
+    let mode = 'vuelta', cw = 0, npx = fsm;
+    if (fits(cwIzq, fsm)) { mode = 'izq'; cw = cwIzq; }
+    else if (fits(cwArr, fsm)) { mode = 'arriba'; cw = cwArr; }
+    else if (fits(cwArr, fc)) { mode = 'arriba'; cw = cwArr; npx = fc; }
+    const hdH = Math.round(fc * 1.7);
+    let H = 0, cell, g = '';
+    if (mode !== 'vuelta') {
+      const cellH = Math.max(26, Math.round(npx * 2.1)), lbH = mode === 'arriba' ? Math.round(fsm * 1.5) : 0, rowGap = mode === 'arriba' ? 8 : gap;
+      const x0 = mode === 'izq' ? labW + 10 : 0;
+      cell = (r, c) => ({ x: x0 + c * (cw + gap), y: hdH + r * (lbH + cellH + rowGap) + lbH, w: cw, h: cellH });
+      cols.forEach((c, ci) => { const b = cell(0, ci); g += `<text class="gh-cl" x="${f1(b.x + cw / 2)}" y="${f1(fc + 2)}" text-anchor="middle">${esc(c)}</text>`; });
+      rows.forEach((r, ri) => {
+        const b = cell(ri, 0);
+        g += mode === 'izq' ? `<text class="gh-rl" x="0" y="${f1(b.y + b.h / 2 + fsm * .36)}">${esc(r.label)}</text>`
+          : `<text class="gh-rl" x="0" y="${f1(b.y - lbH * .32)}">${esc(r.label)}</text>`;
+      });
+      H = hdH + R * (lbH + cellH + rowGap) - rowGap + 1;
+    } else {
+      // dada vuelta: una columna por serie, con su nombre arriba en una o dos líneas; los innings a la izquierda
+      const innW = Math.round(Math.max(fc, ...kCols.map(mw)) + 12);
+      cw = (W - innW - Math.max(0, R - 1) * gap) / Math.max(1, R);
+      npx = fits(cw, fsm) ? fsm : fc;
+      const cellH = Math.max(26, Math.round(npx * 2)), lh = Math.round(fc * 1.25), max = cw - 4;
+      const espW = Math.max(0, mw(kEsp[0]) - mw(kEsp[1])) || fc * .28, ptoW = mw(kPto);
+      // si una palabra (o una línea) no cabe, se abrevia con un punto ("Permitidas" → "Permit.", "Anotadas" → "Anot."),
+      // con el ancho medio de sus letras: se corta después de una consonante, como se abrevia en castellano, y nunca a
+      // menos de 3 letras
+      const abrevia = (t, w) => {
+        if (w <= max) return t;
+        let n = Math.max(3, Math.min(t.length - 3, Math.floor((max - ptoW) / (w / t.length)))); // ("Permitid." no)
+        while (n > 3 && /[\saeiouáéíóú]/i.test(t[n - 1])) n--;
+        return t.slice(0, n) + '.';
+      };
+      const partir = ri => {
+        const [kAll, kWs] = kHds[ri], ws = rows[ri].label.split(' '), ww = kWs.map(mw);
+        if (mw(kAll) <= max) return [rows[ri].label];
+        const linea = (a, b) => ww.slice(a, b).reduce((x, y) => x + y, 0) + espW * Math.max(0, b - a - 1);
+        for (let k = ws.length - 1; k > 0; k--) if (linea(0, k) <= max && linea(k, ws.length) <= max) return [ws.slice(0, k).join(' '), ws.slice(k).join(' ')];
+        if (ws.length === 1) return [abrevia(ws[0], ww[0])];
+        return [abrevia(ws[0], ww[0]), abrevia(ws.slice(1).join(' '), linea(1, ws.length))];
+      };
+      const heads = rows.map((r, ri) => partir(ri)), nl = Math.max(1, ...heads.map(h => h.length));
+      const top = nl * lh + 6;
+      cell = (r, c) => ({ x: innW + r * (cw + gap), y: top + c * (cellH + gap), w: cw, h: cellH });
+      heads.forEach((h, ri) => {
+        const b = cell(ri, 0);
+        g += `<text class="gh-cl gh-hd" x="${f1(b.x + cw / 2)}" text-anchor="middle">${h.map((t, k) => `<tspan x="${f1(b.x + cw / 2)}" y="${f1(top - 6 - (h.length - 1 - k) * lh - fc * .3)}">${esc(t)}</tspan>`).join('')}</text>`;
+      });
+      cols.forEach((c, ci) => { const b = cell(0, ci); g += `<text class="gh-cl" x="${innW - 8}" y="${f1(b.y + b.h / 2 + fc * .36)}" text-anchor="end">${esc(c)}</text>`; });
+      H = top + CN * (cellH + gap) - gap + 1;
+    }
+    rows.forEach((r, ri) => cols.forEach((c, ci) => {
+      const b = cell(ri, ci), st = stepOf(r.v[ci]);
+      g += `<g class="gh-c ${st < 0 ? 'sn' : 's' + st}" data-r="${ri}" data-c="${ci}"><rect x="${f1(b.x)}" y="${f1(b.y)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="3"/>` +
+        `<text class="gh-n" x="${f1(b.x + b.w / 2)}" y="${f1(b.y + b.h / 2 + npx * .36)}" text-anchor="middle">${esc(txt[ri][ci])}</text></g>`;
+    }));
+    svg.setAttribute('viewBox', `0 0 ${W} ${Math.max(1, H)}`);
+    svg.setAttribute('width', W); svg.setAttribute('height', Math.max(1, H));
+    svg.setAttribute('data-forma', mode);
+    svg.style.setProperty('--gh-n', npx + 'px');
+    svg.querySelector('.gh-g').innerHTML = g;
+
+    // el nombre del dibujo, corto: lo que mide, el más alto y dónde están los números
+    let mx = null;
+    rows.forEach((r, ri) => r.v.forEach((v, ci) => { if (v != null && (!mx || v > mx[0])) mx = [v, ri, ci]; }));
+    svg.setAttribute('aria-label', `${o.label || 'Mapa de calor'}.` + (mx ? ` Más alto: ${rows[mx[1]].label}, ${colName(cols[mx[2]])} (${txt[mx[1]][mx[2]]}).` : '') + ' Los números, en la tabla');
+
+    // la celda elegida: un aro en la separación de 2 px (se ve sobre cualquier tono)
+    const ring = svg.querySelector('.gh-sel');
+    const paintSel = () => {
+      if (!S.sel) { ring.setAttribute('visibility', 'hidden'); return; }
+      const b = cell(S.sel[0], S.sel[1]);
+      ring.setAttribute('x', f1(b.x - 1)); ring.setAttribute('y', f1(b.y - 1)); ring.setAttribute('width', f1(b.w + 2)); ring.setAttribute('height', f1(b.h + 2));
+      ring.removeAttribute('visibility');
+    };
+    paintSel();
+    if (pickable) {
+      const say = () => { if (live && S.sel) live.textContent = `${rows[S.sel[0]].label}, ${colName(cols[S.sel[1]])}: ${val(S.sel[0], S.sel[1])}`; };
+      K.on(svg, 'click', ev => {
+        const t = ev.target && ev.target.closest ? ev.target.closest('.gh-c') : null;
+        if (!t) return;
+        S.sel = [+t.getAttribute('data-r'), +t.getAttribute('data-c')];
+        paintSel();
+        o.onPick(S.sel[0], S.sel[1]);
+      });
+      // flechas en el sentido en que se ve (dada vuelta, abajo es el inning siguiente); Enter o espacio, elegir
+      const MOV = { ArrowRight: [0, 1], ArrowLeft: [0, -1], ArrowDown: [1, 0], ArrowUp: [-1, 0] };
+      K.on(svg, 'keydown', ev => {
+        const m = MOV[ev.key];
+        if (m) {
+          ev.preventDefault();
+          let r = 0, c = 0;
+          if (S.sel) {
+            const [dr, dc] = mode === 'vuelta' ? [m[1], m[0]] : m;
+            r = clamp(S.sel[0] + dr, 0, R - 1); c = clamp(S.sel[1] + dc, 0, CN - 1);
+          }
+          S.sel = [r, c];
+          paintSel();
+          say();
+        } else if ((ev.key === 'Enter' || ev.key === ' ') && S.sel) {
+          ev.preventDefault();
+          o.onPick(S.sel[0], S.sel[1]);
+        } else if (ev.key === 'Escape' && S.sel) { S.sel = null; paintSel(); }
+      });
+    }
+    // con la letra ya cargada, los números se vuelven a medir (puede cambiar la forma)
+    if (document.fonts && document.fonts.status !== 'loaded') {
+      let alive = true;
+      K.offs.push(() => { alive = false; });
+      document.fonts.ready.then(() => { if (alive && svg.isConnected) heat(box, data, o); });
+    }
+    return K.api;
+  }
+
   // Redibuja al cambiar el ancho (girar el teléfono). Un solo observador por gráfico aunque se redibuje mil veces.
   // El redibujo va en el cuadro siguiente: hecho dentro del observador cambia el alto de la caja en la misma vuelta y
   // el navegador avisa "ResizeObserver loop completed with undelivered notifications".
@@ -1275,5 +1874,5 @@
   }
 
   root.PC = root.PC || {};
-  root.PC.charts = { winProb, spray, zone, field, line, responsive, NS };
+  root.PC.charts = { winProb, spray, zone, field, line, bump, heat, responsive, NS };
 })(typeof window !== 'undefined' ? window : globalThis);

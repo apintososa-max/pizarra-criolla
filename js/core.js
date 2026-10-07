@@ -287,7 +287,9 @@
   };
 
   // ---------- estado ----------
-  const state = { season: null, upcoming: null, liveToday: 0, prefs: {}, root: null }; // root: sección que marca la barra
+  // root: sección que marca la barra; hint: el juego que se acaba de tocar en la lista ({pk, status}, juegos.js), para
+  // que la pantalla del juego muestre de una vez el esqueleto que le toca (en vivo o no)
+  const state = { season: null, upcoming: null, liveToday: 0, prefs: {}, root: null, hint: null };
   try { state.prefs = JSON.parse(localStorage.getItem('pc1:prefs')) || {}; } catch (e) { state.prefs = {}; }
   const savePrefs = () => { try { localStorage.setItem('pc1:prefs', JSON.stringify(state.prefs)); } catch (e) { /* sin almacenamiento */ } };
 
@@ -348,18 +350,46 @@
   const register = (name, v) => { views[name] = v; };
   let cur = null, seq = 0;
 
+  // "#/equipo/696?t=2023" → {name: 'equipo', args: ['696'], q: {t: '2023'}}. La consulta (?…) va aparte: los args de
+  // las vistas son los mismos con o sin ella.
   function parseHash(h) {
     let s = String(h || '').replace(/^#\/?/, '');
+    const k = s.indexOf('?'), q = {};
+    if (k >= 0) {
+      try { new URLSearchParams(s.slice(k + 1)).forEach((v, key) => { q[key] = v; }); } catch (e) { /* se ignora */ }
+      s = s.slice(0, k);
+    }
     try { s = decodeURIComponent(s); } catch (e) { /* se queda como vino */ }
     const parts = s.split('/').filter(Boolean);
-    return { name: parts[0] || 'juegos', args: parts.slice(1) };
+    return { name: parts[0] || 'juegos', args: parts.slice(1), q };
   }
   const parse = () => parseHash(location.hash);
-  // La misma pantalla aunque el enlace se escriba distinto (#/juegos, #juegos o vacío).
+  // La misma pantalla aunque el enlace se escriba distinto (#/juegos, #juegos o vacío). La consulta no cuenta.
   const sameRoute = (a, b) => {
     const x = parseHash(a), y = parseHash(b);
     return x.name === y.name && x.args.join('/') === y.args.join('/');
   };
+  // La temporada de un enlace compartido (?t=2023 o ?t=2023-24): el año de inicio, de 2016 a la temporada en curso;
+  // cualquier otra cosa, null (se ignora).
+  function seasonOfQ(t) {
+    const m = /^(\d{4})(?:-(\d{2}))?$/.exec(String(t == null ? '' : t).trim());
+    if (!m) return null;
+    const y = +m[1];
+    if (m[2] != null && +m[2] !== (y + 1) % 100) return null;
+    return y >= 2016 && y <= API.currentSeason() ? y : null;
+  }
+  // Quita ?t de la dirección sin pasos ni hashchange (al elegir otra temporada en el selector: recargar no vuelve a la del
+  // enlace). Lo demás de la consulta, si hubiera, se queda.
+  function dropSeasonQ() {
+    const h = location.hash, k = h.indexOf('?');
+    if (k < 0) return;
+    let p;
+    try { p = new URLSearchParams(h.slice(k + 1)); } catch (e) { return; }
+    if (!p.has('t')) return;
+    p.delete('t');
+    const rest = p.toString();
+    try { history.replaceState(history.state, '', h.slice(0, k) + (rest ? '?' + rest : '')); } catch (e) { /* nada */ }
+  }
   const hashOf = url => { const k = String(url || '').indexOf('#'); return k < 0 ? '' : url.slice(k); };
   // Las secciones de la barra de abajo son las pantallas raíz; un juego, un equipo o un jugador cuelgan de una de ellas.
   const isRoot = name => !!document.querySelector(`.tabs a[data-tab="${name}"]`);
@@ -372,6 +402,12 @@
       a.classList.toggle('on', on);
       if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
+  }
+  // En la búsqueda, la lupa de la cabecera dice "estás aquí" (aria-current, y el color de acento en css/nav.css).
+  function markSearch(on) {
+    const a = document.querySelector('.top-buscar');
+    if (!a) return;
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   // Título de la pestaña del navegador (y del historial y de "recientes" en Android): ctx.title si la vista lo pone,
   // si no el <h1> de la pantalla, y si no tiene, el nombre de su sección.
@@ -441,8 +477,15 @@
   //    suma la nueva); ir a Juegos regresa en el historial. Así, atrás desde cualquier sección va a Juegos, y de ahí
   //    sale de la app.
   //  - Entrar a un juego, equipo o jugador suma un paso.
+  //  - Las posiciones van por entrada (su lugar en la pila y su dirección): la misma pantalla abierta dos veces no comparte
+  //    la suya. Al ir atrás, lo que queda adelante se olvida, como en Android: una pantalla de la que se sale hacia atrás
+  //    se cierra, y Adelante la abre arriba (igual que juego.js la abre sin su pestaña ni su repetición).
   const nav = { i: 0, stack: [], next: null, after: null, pos: new Map(), first: 'new' };
   const NAV_KEY = 'pc1:nav';
+  const posKey = (i, h) => i + '|' + h;
+  // La pantalla pintada (lugar y dirección): solo ella deja su posición al irse. El paso intermedio por Juegos (camino a
+  // otra sección) nunca se pinta: lo que se ve en ese momento es todavía la sección anterior.
+  let shown = null;
   function saveNav() {
     try { sessionStorage.setItem(NAV_KEY, JSON.stringify({ stack: nav.stack, pos: Array.from(nav.pos).slice(-40) })); } catch (e) { /* sin almacenamiento */ }
   }
@@ -460,17 +503,28 @@
     }
     nav.stack[nav.i] = Object.assign({}, nav.stack[nav.i], { h: location.hash });
   }
-  function remember(h) {
+  function remember(i, h) {
+    const k = posKey(i, h);
+    if (shown !== k) return;
     const el = document.getElementById('view');
-    nav.pos.delete(h);
-    nav.pos.set(h, Object.assign(takeUI(el), { y: Math.round(window.scrollY), seen: chipsSeen(el) }));
+    nav.pos.delete(k);
+    nav.pos.set(k, Object.assign(takeUI(el), { y: Math.round(window.scrollY), seen: chipsSeen(el) }));
     if (nav.pos.size > 40) nav.pos.delete(nav.pos.keys().next().value);
   }
   function onHash(e) {
-    const from = e && e.oldURL != null ? hashOf(e.oldURL) : null;
-    let snap = null;
-    if (from != null) { remember(from); snap = nav.pos.get(from); } // la pantalla que se deja todavía está ahí
+    const from = e && e.oldURL != null ? hashOf(e.oldURL) : null, fromI = nav.i;
+    // una hoja abierta no sobrevive a un cambio de pantalla
+    if (hojas.length) hojas[0].cerrar('ruta');
     const st = history.state;
+    const backward = !!st && typeof st.pc === 'number' && st.pc < fromI;
+    let snap = null;
+    if (from != null) {
+      if (backward) {
+        // atrás: las pantallas que quedan adelante se cierran (sus posiciones se olvidan)
+        nav.pos.delete(posKey(fromI, from));
+        for (let k = st.pc + 1; k <= fromI; k++) if (nav.stack[k]) nav.pos.delete(posKey(k, nav.stack[k].h));
+      } else { remember(fromI, from); snap = nav.pos.get(posKey(fromI, from)); } // la pantalla que se deja todavía está ahí
+    }
     let mode;
     if (st && typeof st.pc === 'number') {
       mode = 'back'; // atrás (o adelante) a una entrada que ya existía
@@ -562,7 +616,7 @@
     if (a.hasAttribute('data-back') || a.closest('.crumbs')) { goBack(a, href, e); return; }
     if (a.hasAttribute('data-replace')) { e.preventDefault(); markOn(a); replaceTo(href, true); }
   });
-  window.addEventListener('pagehide', () => { remember(location.hash); saveNav(); });
+  window.addEventListener('pagehide', () => { remember(nav.i, location.hash); saveNav(); });
 
   // Vigía: el esqueleto no se queda para siempre. Si a los 25 s la pantalla sigue en su esqueleto (una vista que no
   // termina, un pedido colgado), se dice en la pantalla con "Reintentar": un problema de red si hay pedidos andando, si
@@ -586,15 +640,20 @@
   async function route(opts) {
     opts = opts || {};
     const mode = opts.mode || (opts.keepScroll ? 'keep' : 'new');
-    const { name, args } = parse();
+    const { name, args, q } = parse();
+    // ?t=2023: la temporada del enlace manda, como si se hubiera elegido en el selector (antes de pintar nada; también
+    // en frío, porque route corre después de decidir la temporada). Atrás a una entrada con ?t la vuelve a aplicar.
+    const qt = seasonOfQ(q.t);
+    if (qt != null) { if (qt !== state.season) setSeason(qt); state.picked = true; }
     const view = views[name] || views.juegos;
     if (cur && cur.view.leave) { try { cur.view.leave(cur); } catch (e) { /* nada */ } }
     const el = document.getElementById('view');
     // si el archivo de una vista no cargó (corte de red a mitad de la descarga), se dice en la pantalla, con "Reintentar"
     if (!view) { ++seq; cur = null; U.error(el, new Error('No cargó la pantalla'), () => location.reload()); return; }
-    const snap = mode === 'keep' ? (opts.snap || takeUI(el)) : mode === 'back' ? nav.pos.get(location.hash) : null;
+    const snap = mode === 'keep' ? (opts.snap || takeUI(el)) : mode === 'back' ? nav.pos.get(posKey(nav.i, location.hash)) : null;
     const my = ++seq;
-    const ctx = { view, name, args, el, lastRefresh: Date.now(), busy: true, data: {}, paths: new Set() };
+    // mode: cómo se llegó; focus: lo que toma el foco al terminar (la vista lo pone; si no, la pantalla entera)
+    const ctx = { view, name, args, el, mode, focus: null, lastRefresh: Date.now(), busy: true, data: {}, paths: new Set() };
     ctx.alive = () => my === seq;
     cur = ctx;
     // la barra marca la sección de origen: un jugador abierto desde Equipos deja marcada Equipos
@@ -603,16 +662,23 @@
     if (views[name] && isRoot(name)) entry.root = name;
     else if (!entry.root) entry.root = view.tab || 'juegos';
     state.root = entry.root;
-    try { history.replaceState({ pc: nav.i, root: entry.root }, ''); } catch (e) { /* nada */ }
+    // (con una hoja o el modo TV del juego abiertos, su paso en el historial sigue marcado como suyo)
+    const st = history.state, tvOn = !!(st && st.tv) && document.documentElement.classList.contains('tv-on');
+    try { history.replaceState(Object.assign(hojaPaso ? { hoja: 1 } : {}, tvOn ? { tv: 1 } : {}, { pc: nav.i, root: entry.root }), ''); } catch (e) { /* nada */ }
     saveNav();
-    setTab(views[name] && isRoot(name) ? name : entry.root);
+    // en la búsqueda manda la lupa de la cabecera ("estás aquí"), no una pestaña
+    setTab(name === 'buscar' ? null : views[name] && isRoot(name) ? name : entry.root);
+    markSearch(name === 'buscar');
     // atrás a una pantalla que estaba arriba (y = 0): también arriba, no donde quedó la anterior
     if (mode === 'new' || (mode === 'back' && !(snap && snap.y > 0))) window.scrollTo(0, 0);
     // un filtro no achica la página mientras carga: la vista se queda donde estaba
     el.style.minHeight = mode === 'keep' ? el.offsetHeight + 'px' : '';
+    // la vista que se desliza de lado entre días (view.swipe) se lo dice al navegador: el gesto horizontal es de la app
+    el.classList.toggle('pc-dias', typeof view.swipe === 'function');
     let kind;
     try { kind = typeof view.skeleton === 'function' ? view.skeleton(args) : view.skeleton; } catch (e) { kind = null; }
     U.loading(el, kind);
+    shown = posKey(nav.i, location.hash);
     // pantalla nueva: el hueco del aviso de conexión vuelve a su alto justo (en la misma pantalla solo crece)
     if (mode !== 'keep') connRoom(true);
     const unguard = guard(ctx, () => route(), opts.until);
@@ -630,9 +696,14 @@
     updateAgo();
     connShow();
     if (ctx.alive()) setTitle(el, ctx);
-    // el lector de pantalla arranca en la sección nueva (sin mover la vista)
-    if (mode !== 'keep' && ctx.alive()) { try { el.focus({ preventScroll: true }); } catch (e) { /* navegador viejo */ } }
+    // el lector de pantalla arranca en la sección nueva (sin mover la vista); la búsqueda, en su campo
+    if (mode !== 'keep' && ctx.alive()) {
+      const f = ctx.focus && ctx.focus.isConnected ? ctx.focus : el;
+      try { f.focus({ preventScroll: true }); } catch (e) { /* navegador viejo */ }
+    }
     if (ctx.again && ctx.alive()) { ctx.again = false; refreshView(ctx); }
+    // la portada de Juegos pregunta una vez de qué equipo eres
+    if (ctx.alive() && name === 'juegos' && !args.length && views[name]) askTeam();
   }
 
   // Repinta la vista abierta sin saltos. Mientras se repinta, la vista no puede achicarse (así la página no sube ni se
@@ -715,6 +786,7 @@
     sel.addEventListener('change', () => {
       state.season = +sel.value;
       state.picked = true; // la eligió la persona: no se corrige sola
+      dropSeasonQ(); // la del enlace (?t=) ya no manda: recargar no vuelve a ella
       route({ mode: 'new' });
     });
   }
@@ -760,7 +832,15 @@
       const games = [].concat(...(await Promise.all(days)).map(d => C.flatSchedule(d)));
       const n = games.filter(g => g.status === 'live').length;
       state.liveToday = n;
-      if (flag) { flag.hidden = !n; flag.textContent = n === 1 ? '1 en vivo' : `${n} en vivo`; }
+      // "2 en vivo"; en una cabecera angosta queda "● 2" (css/nav.css) y el lector sigue diciendo el texto entero
+      if (flag) {
+        flag.hidden = !n;
+        if (flag.dataset.n !== String(n)) {
+          flag.dataset.n = String(n);
+          flag.innerHTML = `<i aria-hidden="true"></i>${n}<span class="lf-t"> en vivo</span>`;
+          flag.setAttribute('aria-label', n === 1 ? '1 juego en vivo' : `${n} juegos en vivo`);
+        }
+      }
       const up = state.upcoming;
       if (up && games.some(g => (g.status === 'live' || g.status === 'final') && D.seasonOf(g.date) === up.season)) {
         state.upcoming = null;
@@ -781,6 +861,8 @@
     '<path class="ptr-costura" d="M9.2 7.3c4.6 3.7 6.7 8 6.7 12.7s-2.1 9-6.7 12.7M30.8 7.3c-4.6 3.7-6.7 8-6.7 12.7s2.1 9 6.7 12.7"/>' +
     '<path class="ptr-puntos" d="M10.6 11.2l2.6-1.3M12.5 15.1l2.8-.7M13.3 19.4h2.9M12.9 23.8l2.8.8M11.1 28l2.5 1.4M29.4 11.2l-2.6-1.3M27.5 15.1l-2.8-.7M26.7 19.4h-2.9M27.1 23.8l-2.8.8M28.9 28l-2.5 1.4"/></svg>';
   const PTR_LIMIT = 70, PTR_MAX = 120, PTR_EDGE = 24;
+  // el gesto que manda en este toque: 'ptr' (tirar para actualizar) o 'swipe' (deslizar entre días); nunca los dos
+  let gesture = null;
   function ptrInit() {
     const box = document.getElementById('ptr');
     if (!box) return;
@@ -799,11 +881,14 @@
       box.style.transform = ''; box.style.opacity = ''; ball.style.transform = '';
     };
     document.addEventListener('touchstart', e => {
+      if (on && decided) { end(true); return; } // un segundo dedo: se suelta lo que se estaba tirando
+      if (e.touches.length === 1) gesture = null; // un toque nuevo: nada quedó a medias
       on = false;
-      if (working || e.touches.length !== 1 || window.scrollY > 0) return;
+      // ni con una hoja abierta ni bajo el modo TV del juego (tapa la página: lo que se toca es de él)
+      if (working || e.touches.length !== 1 || window.scrollY > 0 || hojas.length || document.documentElement.classList.contains('tv-on')) return;
       const t = e.touches[0];
       if (t.clientX < PTR_EDGE || t.clientX > window.innerWidth - PTR_EDGE) return;
-      if (e.target.closest && e.target.closest('input, select, textarea, .tabs, .update')) return;
+      if (e.target.closest && e.target.closest('input, select, textarea, .tabs, .update, .toast')) return;
       x0 = t.clientX; y0 = t.clientY; d = 0; decided = false; on = true;
     }, { passive: true });
     document.addEventListener('touchmove', e => {
@@ -811,9 +896,10 @@
       const t = e.touches[0], dx = t.clientX - x0, dy = t.clientY - y0;
       if (!decided) {
         if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        // de lado (una tabla, los chips) o hacia arriba: no es para actualizar
-        if (dy <= 0 || Math.abs(dx) * 1.2 > dy || window.scrollY > 0) { on = false; return; }
+        // de lado (una tabla, los chips, el día de al lado) o hacia arriba: no es para actualizar
+        if (dy <= 0 || Math.abs(dx) * 1.2 > dy || window.scrollY > 0 || gesture === 'swipe') { on = false; return; }
         decided = true;
+        gesture = 'ptr';
         const top = document.querySelector('.top');
         box.style.top = Math.round((top ? top.getBoundingClientRect().bottom : 56) + 6 - 48) + 'px';
         box.classList.add('tira');
@@ -825,6 +911,7 @@
       if (!on) return;
       on = false;
       if (!decided) return;
+      if (gesture === 'ptr') gesture = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       box.classList.remove('tira');
       if (cancel || d < PTR_LIMIT) { reset(); return; }
@@ -835,6 +922,127 @@
       const c = cur;
       const job = c ? API.force(() => Promise.all([refreshView(c), pulse()])) : Promise.resolve();
       Promise.all([job.catch(() => { /* el aviso de conexión lo dice */ }), wait(500)]).then(() => { working = false; reset(); });
+    };
+    document.addEventListener('touchend', () => end(false), { passive: true });
+    document.addEventListener('touchcancel', () => end(true), { passive: true });
+  }
+
+  // ---------- deslizar entre días ----------
+  // Una vista con view.swipe(dir, ctx) → dirección o null (dir -1: el día anterior; +1: el siguiente) se pasa de día con
+  // el dedo, igual que con las flechas de la barra de fecha (las marcadas con data-swipe="-1" y "1"). El gesto se decide
+  // en los primeros 10 px: de lado (1,2 veces más que vertical) es de aquí; vertical es desplazar o tirar para actualizar.
+  // Pasa al soltar pasado el umbral (el 22 % del ancho, entre 72 y 160 px), que marca la flecha de ese lado, o con un
+  // golpe rápido (0,5 px/ms y 40 px). Sin día de ese lado la página apenas cede. No empieza en los bordes (el gesto atrás
+  // de Android), en lo que se desliza de lado (tablas, chips, gráficos, campos), con dos dedos, con la página ampliada ni
+  // con una hoja abierta. Con "menos movimiento" nada se mueve: se marca la flecha y el día cambia al soltar.
+  const SW_LOCK = 10, SW_FRAC = 0.22, SW_MIN = 72, SW_MAX = 160, SW_FLING = 0.5, SW_FLING_MIN = 40;
+  const SW_SKIP = 'input:not(#pick-date), select, textarea, .chips, .tbl-wrap, .bt-line, .viz, .utabs, .seg, [data-nodesliza]';
+  // ¿algo entre el dedo y la vista se desliza de lado?
+  function scrollsX(n, stop) {
+    for (; n && n !== stop && n.nodeType === 1; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 1) { const o = getComputedStyle(n).overflowX; if (o === 'auto' || o === 'scroll') return true; }
+    }
+    return false;
+  }
+  function swipeInit() {
+    const box = document.getElementById('view'), html = document.documentElement;
+    if (!box) return;
+    let x0 = 0, y0 = 0, dx = 0, w = 0, on = false, decided = false, swiping = false, raf = 0, tail = [], arrow = null, slideT = 0;
+    const limit = () => Math.min(SW_MAX, Math.max(SW_MIN, w * SW_FRAC));
+    const target = dir => { try { return cur && typeof cur.view.swipe === 'function' ? cur.view.swipe(dir, cur) || null : null; } catch (e) { return null; } };
+    const mark = (dir, on2) => {
+      const a = dir ? box.querySelector(`[data-swipe="${dir}"]`) : null;
+      if (arrow && arrow !== a) arrow.classList.remove('sw-listo');
+      arrow = a;
+      if (a) a.classList.toggle('sw-listo', !!on2);
+    };
+    // todo en su lugar: sin desplazamiento, sin transparencia, sin transición
+    const settle = () => {
+      clearTimeout(slideT); slideT = 0;
+      box.style.transition = ''; box.style.transform = ''; box.style.opacity = '';
+      html.classList.remove('pc-desliza');
+    };
+    const paint = () => {
+      raf = 0;
+      const dir = dx < 0 ? 1 : -1, to = target(dir);
+      mark(dir, !!to && Math.abs(dx) >= limit());
+      if (reduced()) return;
+      const x = to ? dx * 0.55 : dx * 0.12; // sin día de ese lado, apenas cede
+      box.style.transform = `translate3d(${x.toFixed(1)}px,0,0)`;
+      box.style.opacity = String(1 - Math.min(0.35, (Math.abs(x) / w) * 0.8));
+    };
+    // de vuelta a su lugar (no pasó el umbral)
+    const back = () => {
+      if (reduced() || !box.style.transform) { settle(); return; }
+      box.style.transition = 'transform var(--t-micro) var(--ease-out), opacity var(--t-micro) linear';
+      box.style.transform = 'translate3d(0,0,0)';
+      box.style.opacity = '1';
+      slideT = setTimeout(settle, 220);
+    };
+    // pasa de día: lo de hoy sale hacia el lado del dedo y el día nuevo entra desde el otro (el esqueleto, si todavía
+    // no llegó). El día se pide al mismo tiempo que sale el anterior, no después.
+    const slide = (dir, to) => {
+      if (reduced()) { settle(); replaceTo(to, true); return; }
+      const out = -dir * Math.round(w * 0.3);
+      box.style.transition = 'transform 140ms cubic-bezier(.4, 0, 1, 1), opacity 140ms linear';
+      box.style.transform = `translate3d(${out}px,0,0)`;
+      box.style.opacity = '0';
+      replaceTo(to, true);
+      slideT = setTimeout(() => {
+        box.style.transition = 'none';
+        box.style.transform = `translate3d(${Math.round(-out * 0.4)}px,0,0)`;
+        void box.offsetWidth; // que el navegador tome el punto de partida antes de animar
+        box.style.transition = 'transform var(--t-pantalla) var(--ease-out), opacity var(--t-micro) linear';
+        box.style.transform = 'translate3d(0,0,0)';
+        box.style.opacity = '1';
+        slideT = setTimeout(settle, 300);
+      }, 150);
+    };
+    document.addEventListener('touchstart', e => {
+      if (on && swiping) { end(true); return; } // un segundo dedo: el día no cambia
+      on = false;
+      if (slideT) settle(); // un toque durante la animación la termina
+      if (!cur || typeof cur.view.swipe !== 'function' || e.touches.length !== 1 || hojas.length || gesture) return;
+      if (document.documentElement.classList.contains('tv-on')) return; // bajo el modo TV, nada
+      const t = e.touches[0], tg = e.target, vv = window.visualViewport;
+      if (t.clientX < PTR_EDGE || t.clientX > window.innerWidth - PTR_EDGE) return;
+      if (vv && vv.scale > 1.01) return; // ampliada: el dedo recorre la página
+      if (!tg || !tg.closest || !box.contains(tg) || tg.closest(SW_SKIP) || scrollsX(tg, box)) return;
+      x0 = t.clientX; y0 = t.clientY; dx = 0; w = window.innerWidth; decided = false; on = true;
+      tail = [[e.timeStamp, x0]];
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (!on) return;
+      const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+      if (!decided) {
+        if (Math.abs(mx) < SW_LOCK && Math.abs(my) < SW_LOCK) return;
+        decided = true;
+        // vertical: desplazar la página o tirar para actualizar
+        if (e.touches.length !== 1 || Math.abs(mx) <= Math.abs(my) * 1.2 || gesture) { on = false; return; }
+        gesture = 'swipe';
+        swiping = true;
+        html.classList.add('pc-desliza');
+        box.style.transition = 'none';
+      }
+      dx = mx;
+      tail.push([e.timeStamp, t.clientX]);
+      if (tail.length > 8) tail.shift();
+      if (!raf) raf = requestAnimationFrame(paint);
+    }, { passive: true });
+    const end = cancel => {
+      if (!on) return;
+      on = false;
+      if (!swiping) return;
+      swiping = false;
+      if (gesture === 'swipe') gesture = null;
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      mark(0);
+      const dir = dx < 0 ? 1 : -1, to = cancel ? null : target(dir);
+      // velocidad de los últimos 100 ms
+      const last = tail[tail.length - 1], first = tail.find(s => last[0] - s[0] <= 100) || last;
+      const v = last[0] > first[0] ? (last[1] - first[1]) / (last[0] - first[0]) : 0;
+      const fling = Math.abs(dx) >= SW_FLING_MIN && Math.abs(v) >= SW_FLING && v * dx > 0;
+      if (to && (Math.abs(dx) >= limit() || fling)) slide(dir, to); else back();
     };
     document.addEventListener('touchend', () => end(false), { passive: true });
     document.addEventListener('touchcancel', () => end(true), { passive: true });
@@ -915,6 +1123,368 @@
     else window.addEventListener('resize', set);
   }
 
+  // ---------- aviso corto ----------
+  // PC.toast(texto, {ms}): una línea abajo, sobre la barra de secciones, que se va sola (unos 2,5 s; más si el texto es
+  // largo). La caja (#toast en index.html) es role="status" y está siempre en la página: el lector dice cada aviso sin
+  // interrumpir. Uno a la vez: el nuevo reemplaza al anterior. Sin texto, lo esconde.
+  let toastT = 0;
+  function toast(txt, o) {
+    const box = document.getElementById('toast');
+    if (!box) return;
+    clearTimeout(toastT);
+    if (!txt) {
+      box.classList.remove('in');
+      toastT = setTimeout(() => { box.textContent = ''; }, 300);
+      return;
+    }
+    const ms = o && o.ms > 0 ? o.ms : Math.min(6000, 2000 + String(txt).length * 45);
+    // se vacía y se escribe en el cuadro siguiente: el lector nota el aviso aunque repita el anterior
+    box.textContent = '';
+    requestAnimationFrame(() => {
+      box.innerHTML = `<span>${esc(txt)}</span>`;
+      requestAnimationFrame(() => box.classList.add('in'));
+    });
+    toastT = setTimeout(() => toast(''), ms);
+  }
+
+  // ---------- hoja que sube desde abajo ----------
+  // PC.sheet({titulo, html, alAbrir, alCerrar}) → {el, cerrar()}. Una a la vez: abrir otra cierra la anterior.
+  //  - el: la hoja (role="dialog"); lo de html va en su .hoja-cuerpo. alAbrir(el): ya en la página y con el foco en la
+  //    hoja (puede llevarlo a un campo). alCerrar(motivo): ya cerrada, con el foco devuelto y el historial en su lugar;
+  //    motivo: 'boton', 'escape', 'fondo', 'deslizar', 'atras', 'ruta', 'enlace', 'otra' o 'codigo' (cerrar()).
+  //  - cerrar() → Promise que se cumple con el historial en su lugar: quien navegue al cerrar, que la espere (si no, el
+  //    paso atrás de la hoja deshace su navegación).
+  //  - Atrapa el foco y deja todo lo de atrás inerte. Se cierra con Cerrar, Escape, el fondo, deslizándola hacia abajo y
+  //    el botón Atrás del teléfono: abierta con un toque, suma un paso en el historial (sin toque no: Chrome se saltaría
+  //    ese paso y Atrás sacaría de la app). Con el teclado en pantalla sube sobre él. Con "menos movimiento" aparece y se
+  //    va sin deslizarse. Un enlace de la app dentro de la hoja la cierra primero y después navega.
+  const hojas = [];
+  let hojaPaso = false, hojaSeq = 0;
+  const I_X = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
+  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+  const activated = () => !navigator.userActivation || navigator.userActivation.isActive;
+  window.addEventListener('popstate', () => {
+    if (hojaPaso && hojas.length) { hojaPaso = false; hojas[0].cerrar('atras'); return; }
+    // Adelante hasta el paso de una hoja que ya se cerró: se salta
+    if (!hojas.length && history.state && history.state.hoja) history.back();
+  });
+  function sheet(o) {
+    o = o || {};
+    const prev = hojas[0];
+    const act = document.activeElement;
+    const opener = prev ? prev.opener : act && act !== document.body ? act : null;
+    if (prev) prev.cerrar('otra');
+    const id = 'hoja-' + (++hojaSeq);
+    const fondo = document.createElement('div');
+    fondo.className = 'hoja-fondo';
+    const el = document.createElement('section');
+    el.className = 'hoja' + (o.clase ? ' ' + o.clase : '');
+    el.id = id;
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-labelledby', id + '-t');
+    el.tabIndex = -1;
+    el.innerHTML = `<div class="hoja-cab"><span class="hoja-asa" aria-hidden="true"></span><h2 id="${id}-t">${esc(o.titulo || '')}</h2>` +
+      `<button type="button" class="hoja-x" aria-label="Cerrar">${I_X}</button></div><div class="hoja-cuerpo">${o.html || ''}</div>`;
+    document.body.append(fondo, el);
+    // lo de atrás, inerte: no se toca, y el teclado y el lector no entran
+    const quietos = Array.from(document.body.children).filter(n => n !== fondo && n !== el && n.id !== 'toast' &&
+      !/^(SCRIPT|STYLE|TEMPLATE|LINK)$/.test(n.tagName) && !n.hasAttribute('inert'));
+    quietos.forEach(n => n.setAttribute('inert', ''));
+    document.documentElement.classList.add('hoja-abierta');
+    if (!(prev && hojaPaso) && activated()) {
+      try { history.pushState(Object.assign({}, history.state, { hoja: 1 }), ''); hojaPaso = true; } catch (e) { /* nada */ }
+    }
+    let open = true, done = null;
+    const h = { el, opener, cerrar: m => close(typeof m === 'string' ? m : 'codigo') };
+    hojas.push(h);
+    const body = el.querySelector('.hoja-cuerpo');
+    // con la lista corrida, una línea separa la cabecera de lo que pasa por debajo (css/app.css, con-sombra)
+    body.addEventListener('scroll', () => el.classList.toggle('con-sombra', body.scrollTop > 0), { passive: true });
+
+    // teclado: Escape cierra; Tab da la vuelta dentro de la hoja
+    const onKey = e => {
+      if (e.key === 'Escape') {
+        // en un campo de búsqueda con algo escrito, Escape lo borra (lo hace el campo); el siguiente cierra la hoja
+        const t = document.activeElement;
+        if (t && el.contains(t) && t.matches && t.matches('input[type="search"]') && t.value) return;
+        e.preventDefault(); e.stopPropagation(); h.cerrar('escape'); return;
+      }
+      if (e.key !== 'Tab') return;
+      // solo lo que Tab alcanza: las opciones de una lista (tabindex -1) no cuentan
+      const f = Array.from(el.querySelectorAll(FOCUSABLE)).filter(n => n.tabIndex >= 0 && n.getClientRects().length);
+      if (!f.length) { e.preventDefault(); el.focus(); return; }
+      const a = f[0], z = f[f.length - 1], now = document.activeElement;
+      if (e.shiftKey && (now === a || now === el || !el.contains(now))) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && (now === z || !el.contains(now))) { e.preventDefault(); a.focus(); }
+    };
+    const onFocus = e => { if (open && !el.contains(e.target)) { try { el.focus({ preventScroll: true }); } catch (err) { /* nada */ } } };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('focusin', onFocus, true);
+    fondo.addEventListener('click', () => h.cerrar('fondo'));
+    el.querySelector('.hoja-x').addEventListener('click', () => h.cerrar('boton'));
+    // un enlace de la app: primero se cierra la hoja (su paso en el historial) y después se navega
+    el.addEventListener('click', e => {
+      const a = e.target.closest && e.target.closest('a[href^="#"]');
+      if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      const href = a.getAttribute('href');
+      h.cerrar('enlace').then(() => { if (!sameRoute(href, location.hash)) location.hash = href; });
+    });
+
+    // deslizar hacia abajo: desde la cabecera, o desde la lista si está arriba del todo
+    let sy = 0, sx = 0, dy = 0, maybe = false, drag = false, tail = [];
+    el.addEventListener('touchstart', e => {
+      maybe = drag = false;
+      if (e.touches.length !== 1 || (e.target.closest && e.target.closest('input, textarea, select'))) return;
+      const t = e.touches[0];
+      sy = t.clientY; sx = t.clientX; dy = 0;
+      tail = [[e.timeStamp, sy]];
+      maybe = !body.contains(e.target) || body.scrollTop <= 0;
+    }, { passive: true });
+    el.addEventListener('touchmove', e => {
+      if (!maybe) return;
+      const t = e.touches[0], my = t.clientY - sy, mx = t.clientX - sx;
+      if (!drag) {
+        if (Math.abs(my) < 8 && Math.abs(mx) < 8) return;
+        if (my <= 0 || Math.abs(mx) > my || e.touches.length !== 1) { maybe = false; return; }
+        drag = true;
+        el.classList.add('arrastra');
+      }
+      dy = Math.max(0, my);
+      tail.push([e.timeStamp, t.clientY]);
+      if (tail.length > 8) tail.shift();
+      el.style.transform = `translate3d(0,${dy.toFixed(1)}px,0)`;
+    }, { passive: true });
+    const release = cancel => {
+      const was = drag;
+      maybe = drag = false;
+      if (!was) return;
+      el.classList.remove('arrastra');
+      const last = tail[tail.length - 1], first = tail.find(s => last[0] - s[0] <= 100) || last;
+      const v = last[0] > first[0] ? (last[1] - first[1]) / (last[0] - first[0]) : 0;
+      if (!cancel && (dy > Math.min(140, el.offsetHeight * 0.3) || (dy > 40 && v > 0.5))) h.cerrar('deslizar');
+      else el.style.transform = ''; // vuelve a su lugar
+    };
+    el.addEventListener('touchend', () => release(false), { passive: true });
+    el.addEventListener('touchcancel', () => release(true), { passive: true });
+
+    // el teclado en pantalla achica lo visible pero no la página (Chrome y Safari): la hoja sube sobre él
+    const vv = window.visualViewport;
+    const overKeyboard = () => {
+      const kb = !vv || vv.scale > 1.01 ? 0 : Math.round(window.innerHeight - vv.height - vv.offsetTop);
+      el.style.bottom = kb > 40 ? kb + 'px' : '';
+      el.style.maxHeight = kb > 40 ? Math.round(vv.height * 0.94) + 'px' : '';
+    };
+    if (vv) { vv.addEventListener('resize', overKeyboard); vv.addEventListener('scroll', overKeyboard); }
+
+    function close(m) {
+      if (!open) return done || Promise.resolve();
+      open = false;
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('focusin', onFocus, true);
+      if (vv) { vv.removeEventListener('resize', overKeyboard); vv.removeEventListener('scroll', overKeyboard); }
+      const i = hojas.indexOf(h);
+      if (i >= 0) hojas.splice(i, 1);
+      quietos.forEach(n => n.removeAttribute('inert'));
+      document.documentElement.classList.remove('hoja-abierta');
+      const gone = () => { fondo.remove(); el.remove(); };
+      if (m === 'otra' || reduced()) gone();
+      else {
+        el.style.pointerEvents = fondo.style.pointerEvents = 'none';
+        el.classList.remove('arrastra', 'in');
+        el.style.transform = ''; // desde donde la dejó el dedo
+        fondo.classList.remove('in');
+        setTimeout(gone, 320);
+      }
+      if (m !== 'otra' && opener && opener.isConnected && typeof opener.focus === 'function') {
+        try { opener.focus({ preventScroll: true }); } catch (e) { /* nada */ }
+      }
+      let p = Promise.resolve();
+      if (m !== 'otra') {
+        // Atrás ya quitó el paso; un cambio de pantalla lo dejó atrás (se salta si se vuelve a él)
+        if (hojaPaso && m !== 'atras' && m !== 'ruta') {
+          p = new Promise(res => {
+            const fin = () => { clearTimeout(t); window.removeEventListener('popstate', fin); res(); };
+            const t = setTimeout(fin, 600);
+            window.addEventListener('popstate', fin);
+            history.back();
+          });
+        }
+        hojaPaso = false;
+      }
+      done = p.then(() => { if (o.alCerrar) { try { o.alCerrar(m); } catch (e) { console.warn('hoja', e); } } });
+      return done;
+    }
+
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (open) { fondo.classList.add('in'); el.classList.add('in'); } }));
+    try { el.focus({ preventScroll: true }); } catch (e) { /* nada */ }
+    if (o.alAbrir) { try { o.alAbrir(el); } catch (e) { console.warn('hoja', e); } }
+    return h;
+  }
+
+  // ---------- compartir ----------
+  // PC.share({title, text, url}) → Promise de 'compartido' | 'copiado' | 'cancelado' | 'error'. Con el menú de compartir
+  // del teléfono si existe; si no (o si falla por otra cosa que no sea cancelar), copia el enlace y avisa "Enlace
+  // copiado". url relativa ('#/juego/838798') se completa con la dirección pública de la app (og:url de index.html),
+  // también al probar en local; sin url, la pantalla abierta.
+  const PUBLIC = (() => {
+    const m = document.querySelector('meta[property="og:url"]');
+    return (m && m.content) || 'https://apintososa-max.github.io/pizarra-criolla/';
+  })();
+  const fullUrl = u => {
+    const s = u == null || u === '' ? (location.hash || '#/juegos') : String(u);
+    try { return new URL(s, PUBLIC).href; } catch (e) { return PUBLIC; }
+  };
+  async function copyText(t) {
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(t); return true; } } catch (e) { /* el método viejo */ }
+    const act = document.activeElement, ta = document.createElement('textarea');
+    ta.value = t;
+    ta.setAttribute('readonly', '');
+    ta.setAttribute('aria-hidden', 'true');
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    (hojas.length ? hojas[0].el : document.body).appendChild(ta); // dentro de la hoja abierta: el foco no sale de ella
+    let ok = false;
+    try { ta.select(); ta.setSelectionRange(0, t.length); ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (act && act !== document.body && act.focus) { try { act.focus({ preventScroll: true }); } catch (e) { /* nada */ } }
+    return ok;
+  }
+  async function share(o) {
+    o = o || {};
+    const data = { url: fullUrl(o.url) };
+    if (o.title) data.title = String(o.title);
+    if (o.text) data.text = String(o.text);
+    if (navigator.share) {
+      try {
+        if (!navigator.canShare || navigator.canShare(data)) { await navigator.share(data); return 'compartido'; }
+      } catch (e) {
+        if (e && e.name === 'AbortError') return 'cancelado';
+      }
+    }
+    if (await copyText(data.url)) { toast('Enlace copiado'); return 'copiado'; }
+    // sin menú de compartir ni portapapeles: el enlace en una hoja, ya marcado, para copiarlo a mano
+    sheet({
+      titulo: 'Compartir',
+      clase: 'hoja-enlace',
+      html: `<p class="eq-txt">No se pudo copiar solo. Cópialo de aquí (mantén presionado el enlace, o Ctrl+C):</p>` +
+        `<input class="enlace" type="text" readonly value="${esc(data.url)}" aria-label="Enlace para compartir">`,
+      alAbrir: el => { const i = el.querySelector('.enlace'); try { i.focus({ preventScroll: true }); i.select(); } catch (e) { /* nada */ } }
+    });
+    return 'error';
+  }
+
+  // ---------- Mi equipo ----------
+  // PC.fav.get() → id o null; PC.fav.set(id | null): se guarda en localStorage ('pc:fav') y avisa con el evento 'pc:fav'
+  // en window ({detail: {id}}); un id que no es de la LVBP no cuenta. PC.fav.elegir() abre la hoja de los 8 equipos →
+  // Promise del id elegido, null ("Ahora no" o quitar) o undefined (se cerró sin elegir).
+  // La portada de Juegos lo pregunta una sola vez: 'pc:fav:preguntado' en localStorage (o un equipo elegido) y no sale más.
+  const FAV = 'pc:fav', ASKED = 'pc:fav:preguntado';
+  const lsRead = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsWrite = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); return true; } catch (e) { return false; } };
+  const favOf = v => (v != null && v !== '' && TEAMS[+v] ? +v : null);
+  let favId = favOf(lsRead(FAV));
+  const favEmit = () => { try { window.dispatchEvent(new CustomEvent('pc:fav', { detail: { id: favId } })); } catch (e) { /* nada */ } };
+  const fav = {
+    get: () => favId,
+    set(id) {
+      const n = favOf(id);
+      if (id != null && n == null) return;
+      lsWrite(FAV, n == null ? null : String(n));
+      lsWrite(ASKED, '1'); // elegido (o quitado) a mano: la pregunta del arranque ya no hace falta
+      if (n === favId) return;
+      favId = n;
+      favEmit();
+    },
+    elegir: o => pickTeam(o)
+  };
+  // cambiado en otra pestaña
+  window.addEventListener('storage', e => {
+    if (e.key !== FAV && e.key !== null) return;
+    const n = favOf(lsRead(FAV));
+    if (n !== favId) { favId = n; favEmit(); }
+  });
+  // Los 8 equipos como botones (data-id), por nombre corto; el elegido marcado.
+  const byShort = () => TEAM_IDS.slice().sort((a, b) => TEAMS[a].short.localeCompare(TEAMS[b].short, 'es'));
+  const teamGrid = sel => `<div class="eq-grid" role="group" aria-label="Equipos de la LVBP">${byShort().map(id => {
+    const t = TEAMS[id], on = id === sel;
+    return `<button type="button" class="eq-op${on ? ' on' : ''}" data-id="${id}"${on ? ' aria-current="true"' : ''}>${chip(id)}` +
+      `<span class="eq-nm"><b>${esc(t.short)}</b><small>${esc(t.city)}</small></span>${on ? '<span class="sr"> (tu equipo)</span>' : ''}</button>`;
+  }).join('')}</div>`;
+  const FAV_WHY = 'Su juego sale primero en la lista del día y su fila se marca en la tabla.';
+  // o.primera: la pregunta del arranque ("Ahora no" en lugar de quitar)
+  function pickTeam(o) {
+    o = o || {};
+    const first = !!o.primera, sel = favId;
+    const no = first ? 'Ahora no' : sel != null ? 'Quitar Mi equipo' : 'Ninguno';
+    return new Promise(resolve => {
+      let res;
+      const h = sheet({
+        titulo: '¿De qué equipo eres?',
+        clase: 'hoja-eq',
+        html: `<p class="eq-txt">${FAV_WHY}${first ? ' Lo cambias cuando quieras en Más.' : ''}</p>${teamGrid(sel)}` +
+          `<p class="eq-pie"><button type="button" class="btn ghost" data-no>${no}</button></p>`,
+        alCerrar: () => resolve(res)
+      });
+      h.el.querySelector('.hoja-cuerpo').addEventListener('click', e => {
+        const b = e.target.closest && e.target.closest('button[data-id], button[data-no]');
+        if (!b) return;
+        if (b.hasAttribute('data-no')) {
+          res = null;
+          if (!first && sel != null) { fav.set(null); toast('Sin equipo: la lista del día va en su orden'); }
+          else if (first) toast('Lo eliges cuando quieras en Más');
+        } else {
+          res = +b.dataset.id;
+          fav.set(res);
+          toast(`Mi equipo: ${TEAMS[res].name}`);
+        }
+        h.cerrar();
+      });
+    });
+  }
+  // La pregunta del primer arranque: solo en la portada de Juegos y una vez. Se marca al mostrarla; sin almacenamiento
+  // no se pregunta (no habría cómo recordar la respuesta).
+  let askT = 0;
+  function askTeam() {
+    if (favId != null || lsRead(ASKED) != null) return;
+    clearTimeout(askT);
+    askT = setTimeout(() => {
+      const p = parse();
+      if (document.hidden || hojas.length || favId != null || p.name !== 'juegos' || p.args.length) return;
+      if (lsRead(ASKED) != null || !lsWrite(ASKED, '1')) return;
+      pickTeam({ primera: true });
+    }, 500);
+  }
+  // #/mi-equipo (acceso directo del ícono): la ficha de Mi equipo, en lugar de esta dirección (Atrás no vuelve aquí);
+  // sin equipo, la pregunta en la pantalla.
+  register('mi-equipo', {
+    tab: 'equipos',
+    skeleton: 'lista',
+    render(el) {
+      if (favId != null) { replaceTo('#/equipo/' + favId, false); return; }
+      el.innerHTML = `<div class="page-head"><h1>Mi equipo</h1></div>
+        <section class="sec eq-pagina"><p class="eq-txt"><b>¿De qué equipo eres?</b> ${FAV_WHY} Lo cambias cuando quieras en Más.</p>${teamGrid(null)}</section>`;
+      el.querySelector('.eq-grid').addEventListener('click', e => {
+        const b = e.target.closest && e.target.closest('button[data-id]');
+        if (!b) return;
+        fav.set(+b.dataset.id);
+        replaceTo('#/equipo/' + b.dataset.id, false);
+      });
+    }
+  });
+
+  // ---------- instalar ----------
+  // El aviso de instalar del navegador se guarda (state.installPrompt) para el botón de Más; 'pc:instalable' avisa a Más
+  // cuando llega o cuando la app quedó instalada (state.installed).
+  const emit = name => { try { window.dispatchEvent(new CustomEvent(name)); } catch (e) { /* nada */ } };
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installPrompt = e; emit('pc:instalable'); });
+  window.addEventListener('appinstalled', () => {
+    state.installPrompt = null;
+    state.installed = true;
+    toast('Pizarra Criolla quedó instalada');
+    emit('pc:instalable');
+  });
+
   // ---------- versión nueva ----------
   // El service worker nuevo queda esperando; la página ofrece "Hay una versión nueva · Actualizar" y, al tocar,
   // le pide que se active y recarga cuando toma el control. La primera instalación se activa sola (sw.js).
@@ -962,6 +1532,17 @@
     const until = Date.now() + GUARD_MS;
     const unguard = guard({ el, busy: true, alive: () => !cur }, () => location.reload(), until);
     connInit();
+    // Recargada con una hoja (o el modo TV del juego) abierta: su paso en el historial quedó sin hoja, y el primer Atrás
+    // no haría nada. Se vuelve al paso de abajo (la misma pantalla, la misma dirección) antes de pintar.
+    const st0 = history.state;
+    if (st0 && (st0.hoja || st0.tv)) {
+      await new Promise(res => {
+        const done = () => { clearTimeout(t); window.removeEventListener('popstate', done); res(); };
+        const t = setTimeout(done, 1000);
+        window.addEventListener('popstate', done);
+        try { history.back(); } catch (e) { done(); }
+      });
+    }
     navInit();
     // Mientras se decide la temporada (la primera visita espera la red), un enlace abierto en frío ya muestra el esqueleto
     // de su pantalla y su pestaña marcada. La portada de Juegos ya viene con el suyo en index.html.
@@ -971,7 +1552,8 @@
       try { kind = typeof v0.skeleton === 'function' ? v0.skeleton(p0.args) : v0.skeleton; } catch (e) { kind = null; }
       U.loading(el, kind);
     }
-    setTab(views[p0.name] && isRoot(p0.name) ? p0.name : (e0 && e0.root) || (v0 && v0.tab) || 'juegos');
+    setTab(p0.name === 'buscar' ? null : views[p0.name] && isRoot(p0.name) ? p0.name : (e0 && e0.root) || (v0 && v0.tab) || 'juegos');
+    markSearch(p0.name === 'buscar');
     // Con el calendario guardado esto es instantáneo (swr); solo la primera visita espera la red.
     const d = await decideSeason();
     state.season = d.season;
@@ -998,6 +1580,7 @@
       if (cur && !cur.busy) refreshView(cur);
     });
     ptrInit();
+    swipeInit();
     unguard();
     await route({ mode: nav.first, until });
     pulse();
@@ -1005,8 +1588,6 @@
     setInterval(pulse, 60000);
     swInit();
   }
-
-  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installPrompt = e; });
 
   // En iPhone, :active (la tarjeta que se hunde al tocarla) solo funciona si hay algún touchstart escuchando.
   document.addEventListener('touchstart', () => {}, { passive: true });
@@ -1021,7 +1602,9 @@
     // repinta la vista abierta (o ctx) sin saltos: conserva desplazamiento, tablas y chips de lado y desplegables
     refresh: ctx => ((ctx || cur) ? refreshView(ctx || cur) : Promise.resolve()),
     // nombre anterior (tabla.js y lideres.js lo llamaban tras pintar): ahora lo hace route() en todas las pantallas
-    chipsOn: (el, ctx) => chipsOn(el, ctx)
+    chipsOn: (el, ctx) => chipsOn(el, ctx),
+    // Fase 3 (contrato en docs/fase3-contrato.md, "N → todos"): Mi equipo, compartir, aviso corto y hoja
+    fav, share, toast, sheet
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

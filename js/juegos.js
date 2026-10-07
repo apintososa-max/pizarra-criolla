@@ -233,17 +233,22 @@
   }
 
   // ---------- tarjeta de un juego, tipo marcador ----------
+  // Mi equipo lleva una estrella antes del nombre (css/app.css): sutil, y nunca la corta el "…" de un nombre largo.
+  const STAR = '<svg class="gc-fav" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.4l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>';
   // opt.carry: juego de anoche que sigue en vivo.
   function card(g, stats, opt) {
     opt = opt || {};
+    const fav = PC.fav ? PC.fav.get() : null;
     const row = (s, k) => {
       const t = g[s];
       const win = g.status === 'final' && t.win;
+      const mine = fav != null && t.id === fav;
       const rec = t.rec ? `${t.rec.W}-${t.rec.L}` : '';
       const sc = t.score == null || g.status === 'pre' || g.status === 'post' ? '' : t.score;
-      return `<div class="gc-t${win ? ' win' : ''}" data-p="${k}">${chipOf(t, 's')}` +
+      return `<div class="gc-t${win ? ' win' : ''}${mine ? ' mio' : ''}" data-p="${k}">${chipOf(t, 's')}` +
         // la coma escondida: el lector dice "Águilas, 21-19" y no "Águilas21-19"
-        `<span class="gc-nm">${esc(team(t.id, { name: t.name }).short)}${rec ? `<span class="sr">, </span><small>${rec}</small>` : ''}</span>` +
+        `<span class="gc-nm">${mine ? STAR : ''}${esc(team(t.id, { name: t.name }).short)}${mine ? '<span class="sr"> (tu equipo)</span>' : ''}` +
+        `${rec ? `<span class="sr">, </span><small>${rec}</small>` : ''}</span>` +
         `<span class="gc-sc">${sc}${win ? '<span class="sr"> (ganó)</span>' : ''}</span></div>`;
     };
     const it = (k, v) => `<span><b>${k}</b> ${v}</span>`;
@@ -262,7 +267,9 @@
       foot = it('Abridores', `${pp('away')} vs. ${pp('home')}`);
     }
     const k = notes(g, opt.carry);
-    return `<a class="gcard gc ${g.status}" href="#/juego/${g.pk}" data-p="g${g.pk}">` +
+    // con-mio: la tarjeta del juego de Mi equipo (en la tarjeta más angosta, la estrella va en su margen: css/app.css)
+    const conMio = fav != null && (g.away.id === fav || g.home.id === fav);
+    return `<a class="gcard gc ${g.status}${conMio ? ' con-mio' : ''}" href="#/juego/${g.pk}" data-p="g${g.pk}">` +
       (k ? `<p class="gc-k" data-p="k">${esc(k)}</p>` : '') +
       `<div class="gc-teams" data-p="t">${row('away', 'a')}${row('home', 'h')}</div>` +
       `<div class="gc-st" data-p="s">${statusCol(g)}</div>` +
@@ -322,6 +329,13 @@
   const withKey = (html, k) => html.replace(/^\s*<([a-z0-9]+)/i, `<$1 data-p="${k}"`);
   // Juegos de relleno "por definir" que la API marca como terminados.
   const realGames = list => list.filter(g => !(g.status === 'final' && (!PC.TEAMS[g.away.id] || !PC.TEAMS[g.home.id])));
+  // Los juegos de Mi equipo primero (en su orden, por si hay doble cartelera); el resto, como venía.
+  function favFirst(list) {
+    const id = PC.fav ? PC.fav.get() : null;
+    if (id == null) return list;
+    const mine = g => g.away.id === id || g.home.id === id;
+    return list.filter(mine).concat(list.filter(g => !mine(g)));
+  }
 
   // ---------- vista: juegos del día ----------
   async function drawDay(el, ctx) {
@@ -339,7 +353,8 @@
     if (!ctx.alive()) return;
     // Un juego de anoche que sigue en vivo pasada la medianoche se queda en "Hoy".
     const carry = prevDay ? C.flatSchedule(prevDay).filter(g => g.status === 'live') : [];
-    const games = realGames(carry.concat(C.flatSchedule(day)));
+    const games = favFirst(realGames(carry.concat(C.flatSchedule(day))));
+    d.nav = nav; // para deslizar entre días (view.swipe)
     const nLive = games.filter(g => g.status === 'live').length;
     d.live = nLive > 0;
     d.pending = date >= D.add(today, -1) && games.some(g => g.status === 'pre' || g.status === 'live' || g.status === 'susp');
@@ -349,7 +364,7 @@
       try {
         let raw = guess && nav.next === up.game.date ? await guess : null;
         if (!raw) raw = await API.day(nav.next);
-        next = realGames(C.flatSchedule(raw));
+        next = favFirst(realGames(C.flatSchedule(raw)));
       } catch (e) { next = null; }
       if (!ctx.alive()) return;
       if (next && !next.length) next = null;
@@ -368,8 +383,9 @@
     const sub = [esc(rel), count];
     if (nLive) sub.push(`<b class="db-live">${nLive} en vivo</b>`);
     if (!isToday) sub.push(`<a class="db-today" href="#/juegos/${today}" data-replace>ir a hoy</a>`);
+    // data-swipe: la flecha que se marca al deslizar hacia ese día (core.js)
     const arrow = (to, back) => (to
-      ? `<a class="db-btn" href="#/juegos/${to}" data-replace aria-label="${back ? 'Día de juego anterior' : 'Siguiente día de juego'}: ${esc(D.long(to))}">${back ? I_LEFT : I_RIGHT}</a>`
+      ? `<a class="db-btn" href="#/juegos/${to}" data-replace data-swipe="${back ? -1 : 1}" aria-label="${back ? 'Día de juego anterior' : 'Siguiente día de juego'}: ${esc(D.long(to))}">${back ? I_LEFT : I_RIGHT}</a>`
       : `<span class="db-btn off" aria-hidden="true">${back ? I_LEFT : I_RIGHT}</span>`);
     // El título de la pantalla, solo para el lector (lo visible es la barra de la fecha).
     const blocks = [`<h1 class="sr" data-p="h1">Juegos del ${esc(dayText(date, D.seasonOf(date) !== D.seasonOf(today)))}</h1>`, `<div class="datebar" data-p="db">
@@ -426,10 +442,24 @@
     try { t.showPicker(); } catch (err) { /* sin gesto del usuario o el navegador no lo permite */ }
   });
 
+  // Al tocar la tarjeta de un juego queda la pista para su pantalla (PC.state.hint = {pk, status}): juego.js elige con
+  // ella el esqueleto que le toca (en vivo, la pizarra del turno) sin esperar los datos.
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a.gcard[href^="#/juego/"]');
+    if (!a) return;
+    const pk = +a.getAttribute('href').split('/')[2];
+    const status = ['live', 'final', 'pre', 'post', 'susp'].find(s => a.classList.contains(s)) || null;
+    if (pk) PC.state.hint = { pk, status };
+  }, true);
+  // Mi equipo cambió (la pregunta del arranque, Más, otra pestaña): la lista abierta se reordena en su lugar.
+  root.addEventListener('pc:fav', () => { if (/^#?\/?(juegos([/?]|$)|\?|$)/.test(location.hash)) PC.refresh(); });
+
   PC.register('juegos', {
     tab: 'juegos',
     skeleton: 'juegos',
     every: ctx => (ctx.data.live ? 15000 : ctx.data.pending ? 120000 : 0),
+    // deslizar de lado: el día de juego anterior (-1) o el siguiente (+1), los mismos de las flechas
+    swipe: (dir, ctx) => { const n = ctx.data.nav, to = n && (dir < 0 ? n.prev : n.next); return to ? '#/juegos/' + to : null; },
     async render(el, args, ctx) {
       let date = /^\d{4}-\d{2}-\d{2}$/.test(args[0] || '') ? args[0] : null;
       if (!date) {

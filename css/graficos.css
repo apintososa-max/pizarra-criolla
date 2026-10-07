@@ -1,12 +1,15 @@
 /* Pizarra Criolla · css/graficos.css
-   Estilos de los dibujos de js/charts.js: curva de probabilidad con sus marcas, mapa de batazos, zona de strike
-   y el campo con la defensa. Colores y letra siempre desde los tokens de styles.css (claro y oscuro). */
+   Estilos de los dibujos de js/charts.js: curva de probabilidad con sus marcas, mapa de batazos, zona de strike,
+   el campo con la defensa, la temporada fecha por fecha y el mapa de calor. Colores y letra siempre desde
+   los tokens de styles.css (claro y oscuro). */
 
 /* Tokens: los colores de los equipos (--away dorado, --home azul; probados para daltonismo) y los propios de los
    gráficos (--g-li, --g-on-away, --g-on-home, --g-field, --g-dirt) viven en styles.css, en claro y en oscuro. */
 /* lo que se arrastra o se toca no selecciona texto ni abre el menú de copiar */
 .gw svg, .gs svg, .gz svg, .gf svg { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .gs svg, .gz svg, .gf svg { overflow: hidden; }
+/* tocar un gráfico le da el foco (tiene tabindex), pero el contorno solo sale con el teclado */
+.viz svg:focus:not(:focus-visible) { outline: none; }
 /* el foco de teclado sobre la pizarra azul: amarillo (el azul de acción no se ve ahí) */
 .board .viz svg:focus-visible, .gz-pan svg:focus-visible, .gf-pan svg:focus-visible { outline-color: var(--bulb); }
 
@@ -80,6 +83,7 @@
 .gs-k.a { background: var(--away); }
 .gs-k.h { background: var(--home); }
 .gs-k.out { background: transparent; border: 2px solid var(--ink-2); }
+.gs-k.sq { border-radius: 2px; } /* el home club, en cuadrado (como en el mapa) */
 .gs-k.hr { width: 14px; height: 14px; vertical-align: -3px; }
 
 /* ---------- zona de strike (en tiza, sobre la pizarra) ---------- */
@@ -180,10 +184,79 @@
 .gf .gf-hit-l.line { stroke-dasharray: none; }
 .gf .gf-hit-l.ground { stroke-dasharray: .5 5; stroke-width: 2.8; }
 .gf .gf-hit-d { fill: var(--bulb); }
+.gf .gf-hit-a { fill: var(--bulb); } /* la flecha en el borde cuando el batazo cae fuera de lo que se ve */
 .gf .gf-hit-t { fill: var(--bulb); font: 700 var(--fs-cap) var(--font-body); paint-order: stroke; stroke: var(--board); stroke-width: 3.5px; stroke-linejoin: round; }
+
+/* (los tokens de la Fase 3, --g-bump y --g-heat-1…6 con su --g-on-heat-1…6, viven en styles.css, en claro y oscuro) */
+
+/* ---------- la temporada fecha por fecha (puestos) ---------- */
+.gb svg { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.gb .gb-l { fill: none; stroke: var(--g-bump); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+/* la marcada: encima de todas, en el acento, con un halo del color de la tarjeta que la separa de las grises */
+.gb .gb-halo { fill: none; stroke: var(--card); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+.gb .gb-on .gb-l { stroke: var(--accent); stroke-width: 3; }
+.gb .gb-end { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+/* siglas en tinta (nunca en el color de la línea); la marcada, en negrita */
+.gb .gb-lab { fill: var(--ink-2); font: 600 var(--fs-sm) var(--font-body); letter-spacing: .02em; }
+.gb .gb-lab.on { fill: var(--ink); font-weight: 800; }
+.gb .gb-lead { stroke: var(--muted); stroke-width: 1; }
+/* con el cursor a la vista, las siglas del cierre (y sus rayitas) se apagan: el orden de ese día lo dicen las fichas */
+.gb .gb-labs { transition: opacity var(--t-micro) var(--ease-out); }
+.gb .gb-con-cursor .gb-labs { opacity: .15; }
+/* el puesto: como el cuadrito de la tabla (amarillo: directo; azul claro: comodín) */
+.gb .gb-rk text { fill: var(--muted); font: 700 var(--fs-cap) var(--font-body); font-variant-numeric: tabular-nums; }
+.gb .gb-rk.q1 rect { fill: var(--q1); }
+.gb .gb-rk.q1 text { fill: var(--q1-ink); }
+.gb .gb-rk.q2 rect { fill: var(--chalk-dim); stroke: var(--muted); stroke-width: 1; }
+@supports (stroke: color-mix(in srgb, red 50%, blue)) { .gb .gb-rk.q2 rect { stroke: color-mix(in srgb, var(--board) 50%, transparent); } }
+.gb .gb-rk.q2 text { fill: var(--board); }
+/* la raya de clasificación (entre zonas): punteada, para que no se confunda con la línea de un equipo */
+.gb .gb-zn { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.gb .gb-ttl text { fill: var(--muted); font: 600 var(--fs-cap) var(--font-body); }
+/* el cursor: la fecha en la píldora (como la de la curva) y en cada puesto la sigla de quien lo tenía */
+.gb .gb-cur-l { stroke: var(--ink); stroke-width: 1; }
+.gb .gb-thumb { fill: var(--ink); stroke: var(--card); stroke-width: 2; }
+.gb .gb-pill { fill: var(--ink); }
+.gb .gb-pill-t { fill: var(--paper); font: 700 var(--fs-cap) var(--font-body); font-variant-numeric: tabular-nums; }
+.gb .gb-chip rect { fill: var(--card); stroke: var(--rule-2); stroke-width: 1; }
+.gb .gb-chip text { fill: var(--ink); font: 700 var(--fs-cap) var(--font-body); letter-spacing: .02em; }
+.gb .gb-chip.on rect { fill: var(--accent); stroke: var(--accent); }
+.gb .gb-chip.on text { fill: var(--on-accent); }
+.gb .gb-hit { cursor: pointer; }
+.gb .gb-drag .gb-hit { cursor: grabbing; }
+
+/* ---------- mapa de calor ---------- */
+.gh svg { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overflow: visible; }
+.gh .gh-c rect { stroke: none; }
+.gh .gh-n { font: 700 var(--gh-n, var(--fs-sm)) var(--font-body); font-variant-numeric: tabular-nums; }
+.gh .s0 rect, .gh-ramp .s0 { fill: var(--g-heat-1); background: var(--g-heat-1); }
+.gh .s1 rect, .gh-ramp .s1 { fill: var(--g-heat-2); background: var(--g-heat-2); }
+.gh .s2 rect, .gh-ramp .s2 { fill: var(--g-heat-3); background: var(--g-heat-3); }
+.gh .s3 rect, .gh-ramp .s3 { fill: var(--g-heat-4); background: var(--g-heat-4); }
+.gh .s4 rect, .gh-ramp .s4 { fill: var(--g-heat-5); background: var(--g-heat-5); }
+.gh .s5 rect, .gh-ramp .s5 { fill: var(--g-heat-6); background: var(--g-heat-6); }
+.gh .s0 .gh-n { fill: var(--g-on-heat-1); }
+.gh .s1 .gh-n { fill: var(--g-on-heat-2); }
+.gh .s2 .gh-n { fill: var(--g-on-heat-3); }
+.gh .s3 .gh-n { fill: var(--g-on-heat-4); }
+.gh .s4 .gh-n { fill: var(--g-on-heat-5); }
+.gh .s5 .gh-n { fill: var(--g-on-heat-6); }
+/* sin dato: la celda vacía con su raya, y un guion en tinta tenue */
+.gh .sn rect { fill: none; stroke: var(--rule-2); stroke-width: 1; }
+.gh .sn .gh-n { fill: var(--muted); }
+.gh .gh-cl { fill: var(--muted); font: 600 var(--fs-cap) var(--font-body); font-variant-numeric: tabular-nums; }
+.gh .gh-hd { fill: var(--ink-2); font-weight: 700; }
+.gh .gh-rl { fill: var(--ink-2); font: 600 var(--fs-sm) var(--font-body); }
+.gh .gh-sel { fill: none; stroke: var(--ink); stroke-width: 2; }
+.gh .gh-pick .gh-c { cursor: pointer; }
+@media (hover: hover) { .gh .gh-pick .gh-c:hover rect { stroke: var(--ink-2); stroke-width: 1.5; } }
+.gh-key { margin-top: 6px; gap: 4px 8px; }
+.gh-ramp { display: inline-flex; gap: 2px; }
+.gh-ramp i { width: 14px; height: 10px; border-radius: 2px; }
 
 /* sin animaciones con "menos movimiento" (styles.css ya acorta todas; aquí, además, la curva sale completa) */
 @media (prefers-reduced-motion: reduce) {
   .gw-in .gw-line { stroke-dasharray: none; animation: none; }
   .gw-in .viz-area, .gw-in .gw-li, .gw-in .gw-mk, .gw-in .gw-cur, .gw-in .gw-end { animation: none; }
+  .gb .gb-labs { transition: none; }
 }

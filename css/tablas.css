@@ -65,6 +65,44 @@
 .tb-ley i { width: .875rem; height: .875rem; border-radius: 4px; flex: none; }
 .tb-ley i.q1 { background: var(--q1); }
 
+/* ---------- los últimos 10: un cuadrito por juego, del más viejo al más nuevo ---------- */
+/* ganado: lleno, en el verde de los ganados (h2h); perdido: hueco, con borde tenue. Se distinguen por la forma, no solo
+   por el color. Al lado, el récord en número chico. */
+.tb .tbl td.l10-c { white-space: nowrap; }
+.l10 { display: inline-flex; gap: 2px; vertical-align: middle; }
+.l10 i { width: .5rem; height: .75rem; border-radius: 2px; box-sizing: border-box; }
+.l10 i.g { background: var(--good); }
+.l10 i.p { border: 1.5px solid var(--muted); }
+.l10-n { margin-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; vertical-align: middle; }
+.l10-0 { color: var(--muted); }
+
+/* ---------- Mi equipo: su fila marcada en todas las tablas de la pantalla ---------- */
+/* tinte del color de acción y una raya a la izquierda (no solo color); el nombre en negrita. El "(Mi equipo)" para el
+   lector de pantalla va en cada fila y solo se lee en la marcada. Las columnas fijas llevan su fondo: van también. */
+.fav-sr { display: none; }
+.es-fav .fav-sr { display: inline-block; position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tb .tbl-wrap .tbl tr.es-fav > *, .tb .tbl-wrap.sticky .tbl tr.es-fav > *, .tb .tbl-wrap.sticky .tbl.standings tr.es-fav > * { background-color: var(--accent-soft); }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .tb .tbl-wrap .tbl tr.es-fav > *, .tb .tbl-wrap.sticky .tbl tr.es-fav > *, .tb .tbl-wrap.sticky .tbl.standings tr.es-fav > * {
+    background-color: color-mix(in srgb, var(--accent) 9%, var(--card));
+  }
+}
+.tb .tbl-wrap .tbl tr.es-fav > :first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.tb .tbl-wrap.sticky .tbl:not(.standings) tr.es-fav > :first-child { box-shadow: inset 3px 0 0 var(--accent), 1px 0 0 var(--rule); }
+.tb .tbl tr.es-fav .tlink { font-weight: 800; }
+.luck-row.es-fav { margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--r-s); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+@supports (background: color-mix(in srgb, red 50%, blue)) { .luck-row.es-fav { background: color-mix(in srgb, var(--accent) 9%, var(--card)); } }
+.luck-row.es-fav .tlink { font-weight: 800; }
+
+/* ---------- la temporada, fecha por fecha (CH.bump) ---------- */
+/* la caja del gráfico, como las otras líneas de la app; debajo, la línea que dice cómo le fue al equipo marcado */
+.tb-bump { background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m); padding: 10px var(--s2) 6px; min-width: 0; }
+/* El alto del gráfico, guardado antes de dibujarlo (llega un cuadro después): la cuenta de CH.bump (charts.js), una fila
+   por equipo (--n) de max(22 px; 1,75 × --fs-sm), la píldora de arriba (1,75 × --fs-cap + 6 px) y el eje
+   (max(28 px; 2,4 × --fs-cap)), más el relleno y el borde de la caja. Crece con la letra del teléfono. */
+.tb-bump { min-height: calc(var(--n, 8) * max(22px, var(--fs-sm) * 1.75) + var(--fs-cap) * 1.75 + 6px + max(28px, var(--fs-cap) * 2.4) + 18px); }
+.tb-bump-t { font-size: var(--fs-sm); color: var(--ink-2); max-width: 62ch; min-height: 1.45em; }
+
 /* enfrentamientos directos: ganados en verde, perdidos en tinta tenue (sin rojo) */
 .tb .h2h td.down { color: var(--muted); }
 .tb .h2h tbody th { padding-left: 10px; }
@@ -171,6 +209,30 @@
 .tb .leaders-t .lt-rk { min-width: 1.4em; text-align: right; color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
 .tb .leaders-t .lt-who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .tb .leaders-t .lt-who small { margin: 0; }
+
+/* ---------- la forma: los últimos 14 días (lideres.js) ---------- */
+/* Debajo del número grande, el de las 2 últimas semanas. Tasas: ▲▼ y, si es para bien, verde y negrita (700); si es para
+   mal, gris y letra normal (400): el peso dice cuál es cuál aunque no se distinga el color. Conteos ("+3"), "no jugó" y
+   "poco juego": tinta tenue, sin flecha. La línea guarda su alto aunque todavía no haya llegado (nada salta al llenarse).
+   Arriba de la lista, la línea que lo explica; en la tabla, su columna "14 días". */
+.ld-ley { font-size: var(--fs-sm); color: var(--ink-2); max-width: 62ch; }
+.ld-ley .ld-fa { margin: 0 1px; }
+.ld-ley .ld-bien, .ld-fv.mejor { color: var(--good); font-weight: 700; }
+.ld-nw { white-space: nowrap; }
+.ld-vf { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.ld-f { display: block; height: 1.25em; font: 600 var(--fs-sm)/1.25 var(--font-body); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ld-fv { display: inline-flex; align-items: center; }
+.ld-fv > span[aria-hidden] { display: inline-flex; align-items: center; gap: 3px; }
+.ld-fv.peor { color: var(--muted); font-weight: 400; }
+.ld-f0 { color: var(--muted); font-weight: 400; }
+.ld-fn { color: var(--ink-2); }
+.ld-fa { display: inline-flex; vertical-align: middle; }
+.ld-fa svg { display: block; width: .72em; height: .72em; fill: currentColor; }
+/* en la pizarra del 1.º: tiza (el verde no se lee sobre el azul); para bien, blanca y negrita; para mal, tenue y normal */
+.ld-top > .ld-vf { grid-area: v; }
+.ld-top .ld-f, .ld-top .ld-fv.peor, .ld-top .ld-f0, .ld-top .ld-fn { color: var(--chalk-dim); }
+.ld-top .ld-fv.mejor { color: var(--chalk); }
+.tb .leaders-t td.ld-fc .ld-f { height: auto; }
 
 /* esqueleto de carga (lideres.js): la maqueta real con un texto de muestra que no se ve (su fondo es la barra gris),
    así mide lo mismo que lo que viene, también con la letra grande */

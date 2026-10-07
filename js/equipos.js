@@ -18,6 +18,32 @@
   const teamsLabel = () => (PC.state.root === 'equipos' ? 'Equipos' : '');
   // Las filas .fi-tap (roster, juego a juego) se tocan enteras con el oyente de core.js.
 
+  // ---------- barra de arriba: la miga a la izquierda y las acciones a la derecha ----------
+  // Compartir (PC.share) y Comparar con… (PC.pickPlayer) salen solo si su función existe (core.js, buscar.js): si falta,
+  // falta el botón y nada más. Los botones miden 48 px de toque sin agrandar la fila (css/fichas.css).
+  const I_SHARE = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="17.5" cy="5.5" r="2.4"/><circle cx="6.5" cy="12" r="2.4"/>' +
+    '<circle cx="17.5" cy="18.5" r="2.4"/><path d="M8.6 10.8l6.8-4M8.6 13.2l6.8 4"/></svg>';
+  const I_CMP = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 8.5h14M15 5l3.5 3.5L15 12M19.5 15.5h-14M9 12l-3.5 3.5L9 19"/></svg>';
+  const canShare = () => typeof PC.share === 'function';
+  const canPick = () => typeof PC.pickPlayer === 'function';
+  const shareBtn = () => (canShare() ? `<button type="button" class="fi-act" data-share aria-label="Compartir">${I_SHARE}</button>` : '');
+  const topBar = (backHtml, acts) => (acts ? `<div class="fi-bar">${backHtml}<div class="fi-acts">${acts}</div></div>` : backHtml);
+  // data: {title, text, url} o una función que lo arma al tocar. PC.share se llama ahí mismo, dentro del toque (el menú de
+  // compartir y el portapapeles lo exigen). Un segundo toque mientras está abierta la hoja de compartir no hace nada
+  // (navigator.share no admite dos a la vez).
+  function onShare(el, data) {
+    const b = el.querySelector('[data-share]');
+    if (!b || !canShare()) return;
+    let busy = false;
+    b.addEventListener('click', () => {
+      if (busy) return;
+      busy = true;
+      let r;
+      try { r = PC.share(typeof data === 'function' ? data() : data); } catch (e) { console.warn('compartir', e); }
+      Promise.resolve(r).catch(e => console.warn('compartir', e)).then(() => { busy = false; });
+    });
+  }
+
   // ---------- la pizarra de las fichas ----------
   // Línea de números grandes dentro del bloque azul. cells: [{label, value, title?, top?}]; top: 1.º de la liga (amarillo).
   function statLine(cells) {
@@ -38,7 +64,13 @@
   const times = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('');
   // barra del alto de un título de una línea: fs, el token de la letra; w y lh en em de esa letra
   const skBar = (fs, w, lh) => `<span class="sk" style="font-size:var(--fs-${fs});width:${w}em;height:${lh}em"></span>`;
-  const skBack = label => `<div class="crumbs sk-x"><a class="fi-back">${I_LEFT}<span>${ghost(label || 'Volver')}</span></a></div>`;
+  const skCrumb = label => `<div class="crumbs sk-x"><a class="fi-back">${I_LEFT}<span>${ghost(label || 'Volver')}</span></a></div>`;
+  // con las mismas acciones que tendrá la pantalla (cmp: lleva "Comparar con…")
+  const skBack = (label, cmp) => {
+    const acts = (cmp && canPick() ? `<span class="fi-act fi-cmp">${I_CMP}<span>${ghost('Comparar')}<span class="cmp-x">${ghost(' con…')}</span></span></span>` : '') +
+      (canShare() ? `<span class="fi-act">${I_SHARE}</span>` : '');
+    return acts ? `<div class="fi-bar sk-x">${skCrumb(label)}<div class="fi-acts">${acts}</div></div>` : skCrumb(label);
+  };
   const skLine = n => `<dl class="fh-line" style="--n:${n}">${times(n, () => `<div><dt>${ghost('RACHA')}</dt><dd>${ghost('000')}</dd></div>`)}</dl>`;
   const skHead = w => `<div class="sec-head">${skBar('h2', w, 1.1)}</div>`;
   const SK_TILES = ['Carreras por juego', 'AVE', 'OBP', 'SLG', 'wRC+', 'Jonrones', 'Bases robadas', 'BB%', 'K%'];
@@ -63,8 +95,12 @@
         `<b class="ft-v">${ghost('0.0')}</b><span class="ft-r">${meter(0, 8)}${ghost('0.º de 8')}</span></li>`).join('')}</ul></div>`;
   };
 
+  // La temporada elegida todavía no empieza (la 2026-27 antes del 12/10): todos se ven con su temporada anterior y el
+  // aviso de arriba, así que el esqueleto también lo lleva.
+  const notStarted = () => !!(PC.state.upcoming && PC.state.upcoming.season === PC.state.season);
+  const skAviso = rest => `<p class="fi-aviso sk-x"><b>${ghost('Datos de 0000-00:')}</b> <span>${ghost(rest)}</span></p>`;
   // ficha de jugador: la pizarra apagada (equipo, nombre, datos, 5 casillas y el pie) y la rejilla de números
-  U.skeletons['ficha-jugador'] = () => skBack() +
+  U.skeletons['ficha-jugador'] = () => skBack('', true) + (notStarted() ? skAviso('todavía no juega en 0000-00.') : '') +
     `<div class="fh sk-x"><p class="eyebrow fh-eb"><span class="fh-tm"><span class="tchip s inv sk-chip">LVB</span></span>${ghost('Equipo de la liga · 2B · #00')}</p>` +
     `<div class="sk-h1">${ghost('Nombre Apellido')}</div><p class="fh-meta">${ghost('Batea derecho · lanza derecho · 25 años · nació en Valencia')}</p>` +
     `${skLine(5)}<p class="fh-foot"><span>${ghost('Califica para los líderes · 000 PA')}</span></p></div>` +
@@ -112,6 +148,74 @@
       `${t.rank ? `<span class="ft-r">${meter(t.rank, t.of)}${ordinal(t.rank)} de ${t.of}</span>` : ''}</li>`).join('')}</ul>`;
   }
 
+  // ---------- carreras por inning (mapa de calor) ----------
+  // C.runsByInning y C.runsByInningLeague (M) dan diez lugares: innings 1 a 9 y uno para todos los extrainnings, cada uno
+  // con {runs, avg, played, avgPlayed}. Aquí va el promedio por inning jugado (avgPlayed): así el 9.º (la baja que no se
+  // juega) y los extrainnings se comparan con los demás. La liga es lo que anota un equipo cualquiera en ese inning.
+  // Si falta algo del motor o del dibujo, la sección no sale.
+  const INN_COLS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Ex'];
+  const innName = c => (c < 9 ? `el ${ordinal(c + 1)}` : 'los extrainnings');
+  const dec2 = v => (v == null ? '—' : v.toFixed(2));
+  const cell2 = v => (v == null ? '—' : v.toFixed(2).replace(/^0(?=\.)/, '')); // ".62", como el AVE: cabe en la casilla
+  const perInn = x => (!x ? null : x.avgPlayed != null ? +x.avgPlayed : x.played === 0 ? null : x.avg != null ? +x.avg : null);
+  function inningData(mine, lg) {
+    const n = mine && +mine.n;
+    if (!n || !Array.isArray(mine.scored) || !Array.isArray(mine.allowed)) return null;
+    const ls = lg && Array.isArray(lg.scored) ? lg.scored : [];
+    const pick = (a, f) => INN_COLS.map((_, c) => f(a[c]));
+    return {
+      n, lg: pick(ls, perInn),
+      scored: pick(mine.scored, perInn), allowed: pick(mine.allowed, perInn),
+      sRuns: pick(mine.scored, x => (x ? x.runs : null)), aRuns: pick(mine.allowed, x => (x ? x.runs : null)),
+      sPl: pick(mine.scored, x => (x ? x.played : null)), aPl: pick(mine.allowed, x => (x ? x.played : null))
+    };
+  }
+  // Lo más notorio frente a la liga, en una línea: el inning (del 1 al 9) en que más le saca a la liga anotando y en el que
+  // más le anotan de más (la diferencia más grande, que es lo que se calcula). Si en ninguno pasa, se dice así.
+  function inningNote(d) {
+    if (d.n < 5) return `Con ${d.n} ${d.n === 1 ? 'juego' : 'juegos'} todavía es pronto para ver un patrón.`;
+    const most = vals => {
+      let k = -1, gap = -Infinity;
+      for (let c = 0; c < 9; c++) {
+        if (vals[c] == null || d.lg[c] == null) continue;
+        const g = vals[c] - d.lg[c];
+        if (g > gap) { gap = g; k = c; }
+      }
+      return { k, gap };
+    };
+    const s = most(d.scored), a = most(d.allowed);
+    const vs = (v, c) => `${dec2(v)} contra ${dec2(d.lg[c])}`;
+    const out = [];
+    if (s.k >= 0) out.push(s.gap > 0 ? `Donde más le saca a la liga: ${innName(s.k)} (${vs(d.scored[s.k], s.k)}).` : 'Anota menos que la liga en todos los innings.');
+    if (a.k >= 0) out.push(a.gap > 0 ? `Donde más le anotan de más: ${innName(a.k)} (${vs(d.allowed[a.k], a.k)}).` : 'En ningún inning le anotan más que a la liga.');
+    return out.join(' ');
+  }
+  // El detalle de una casilla tocada: "7.º inning: anota 0.73 por inning (41 carreras en 56 innings); la liga, 0.53."
+  function inningCell(d, r, c) {
+    const name = c < 9 ? `${ordinal(c + 1)} inning` : 'Extrainnings';
+    const lgTxt = d.lg[c] != null ? `; la liga, ${dec2(d.lg[c])}` : '';
+    const tot = (runs, pl) => (runs != null && pl ? ` (${runs} ${runs === 1 ? 'carrera' : 'carreras'} en ${pl} ${pl === 1 ? 'inning' : 'innings'})` : '');
+    if (r === 1) return d.lg[c] == null ? `${name}: sin datos de la liga.` : `${name}: un equipo de la liga anota ${dec2(d.lg[c])} carreras por inning.`;
+    const v = r === 0 ? d.scored[c] : d.allowed[c];
+    if (v == null) return `${name}: ${c < 9 ? 'no lo jugó' : 'no jugó extrainnings'} esta temporada.`;
+    return r === 0 ? `${name}: anota ${dec2(v)} por inning${tot(d.sRuns[c], d.sPl[c])}${lgTxt}.`
+      : `${name}: le anotan ${dec2(v)} por inning${tot(d.aRuns[c], d.aPl[c])}${lgTxt}.`;
+  }
+  // ¿Hay con qué pedir y dibujar el mapa? (si falta algo de M o de G, la sección no sale)
+  const heatOk = () => !!(API.teamInnings && C.runsByInning && C.runsByInningLeague && CH.heat);
+  // la caja reservada mientras llegan los datos: un bloque apagado del alto del mapa y la línea de la escala
+  const HEAT_SK = '<div class="fi-heat-res" aria-hidden="true"><span class="sk"></span><span class="sk fi-heat-sk-ley"></span></div>';
+  // y la línea de lo más notorio, apagada: un texto del mismo largo que el de verdad, para que ocupe los mismos renglones
+  const HEAT_NOTE_SK = `<span class="sk-tx" aria-hidden="true">${esc('Donde más le saca a la liga: el 0.º (0.00 contra 0.00). Donde más le anotan de más: el 0.º (0.00 contra 0.00).')}</span>`;
+  // Los juegos de la temporada regular con sus innings: los del equipo y los de toda la liga (una sola consulta, M).
+  async function innings(id, season) {
+    if (!heatOk()) return null;
+    try {
+      const [mine, all] = await Promise.all([API.teamInnings(id, season), API.teamInnings(null, season)]);
+      return inningData(C.runsByInning(mine, id), C.runsByInningLeague(all));
+    } catch (e) { console.warn('innings', e); return null; }
+  }
+
   // Lo que dice el récord pitagórico, en palabras.
   function luckText(luck) {
     if (!(Math.abs(luck) >= 0.5)) return 'Ganó lo que dan sus carreras anotadas y permitidas';
@@ -143,11 +247,19 @@
       const id = +args[0];
       if (!PC.TEAMS[id]) { location.hash = '#/equipos'; return; }
       const season = PC.state.season;
+      // Las carreras por inning (la temporada entera de toda la liga: la consulta más lenta) se piden ya, pero la ficha no
+      // las espera: si estaban guardadas llegan en este mismo instante y van en esta pintada; si no, su caja queda
+      // reservada con su alto (css/fichas.css) y el mapa se dibuja al llegar, sin mover lo de abajo.
+      const innP = innings(id, season);
+      let inn, innDone = false;
+      innP.then(v => { inn = v; innDone = true; });
       const [games, st, th, tp, rh, rp] = await Promise.all([
         PC.seasonGames(season), PC.statsCtx(season, 'R'),
         API.teamStats(season, 'hitting', 'R'), API.teamStats(season, 'pitching', 'R'),
         API.stats(season, 'hitting', 'R', id), API.stats(season, 'pitching', 'R', id)
       ]);
+      if (!ctx.alive()) return;
+      if (!innDone) await new Promise(r => setTimeout(r, 0));
       if (!ctx.alive()) return;
       const reg = games.filter(g => g.type === 'R');
       const rows = C.standings(reg, PC.TEAM_IDS);
@@ -165,7 +277,8 @@
       const of = Math.max(T.length, 1);
       const sr = rows.map(r => ({ id: r.id, RSG: r.RSG, RAG: r.RAG }));
 
-      let html = back('#/equipos', teamsLabel()) + teamHero(id, me, season);
+      const t = team(id);
+      let html = topBar(back('#/equipos', teamsLabel()), shareBtn()) + teamHero(id, me, season);
 
       if (tb && tpi && me && me.G) {
         html += `<section class="sec">${U.head('Ofensiva', 'Cada número con su puesto entre los 8 equipos: el punto marca dónde queda, con el 1.º a la izquierda.')}${tiles([
@@ -187,6 +300,15 @@
           { label: 'K-BB%', value: F.pct(tpi.r.KBBPct), rank: rankOf(P, id, x => x.r.KBBPct), of },
           { label: 'HR por 9 IL', value: F.era(tpi.r.HR9), rank: rankOf(P, id, x => x.r.HR9, true), of }
         ])}</section>`;
+      }
+
+      // carreras por inning: anotadas y permitidas, con la liga en medio (si todavía no llegaron, la caja guarda su sitio)
+      const innWait = !innDone && heatOk() && !!(me && me.G);
+      if (inn || innWait) {
+        const nG = inn ? inn.n : me.G;
+        html += `<section class="sec">${U.head('Carreras por inning', `Carreras por inning jugado, en sus ${nG} juegos: arriba las que anotó, abajo las que le anotaron y en medio las de un equipo promedio de la liga. Más oscuro, más carreras. Los extrainnings van juntos (Ex). Toca una casilla para ver el detalle.`)}` +
+          `<div id="inn-heat" class="fi-heat${inn ? '' : ' fi-heat-espera'}">${inn ? '' : HEAT_SK}</div>` +
+          `<p class="fi-heat-t" aria-live="polite">${inn ? esc(inningNote(inn)) : HEAT_NOTE_SK}</p></section>`;
       }
 
       if (me && me.log.length) {
@@ -248,6 +370,38 @@
       }
       html += U.fresh(Math.min(API.when(games, th, tp, rh, rp), st.t || Date.now()));
       el.innerHTML = html;
+
+      onShare(el, () => ({
+        title: t.name,
+        text: me && me.G ? `${t.name}: ${me.W}-${me.L}, ${ordinal(me.pos)} lugar en la LVBP ${PC.seasonLabel(season)}` : `${t.name} en la LVBP ${PC.seasonLabel(season)}`,
+        url: `#/equipo/${id}?t=${season}` // la temporada del enlace (?t=, core.js): la misma que dice el texto
+      }));
+
+      const drawHeat = (hb, d) => {
+        const note = hb.nextElementSibling;
+        const rows = [{ label: 'Anotadas', values: d.scored }, { label: 'Liga', values: d.lg }, { label: 'Permitidas', values: d.allowed }];
+        // la escala, con los innings 1 a 9: los extrainnings son pocos y la aplastarían (lo que pase, toma el tono del extremo)
+        const nine = [].concat(...rows.map(r => r.values.slice(0, 9))).filter(v => v != null);
+        try {
+          CH.responsive(hb, () => CH.heat(hb, { rows, cols: INN_COLS }, {
+            fmt: cell2, min: Math.min(...nine), max: Math.max(...nine), label: `Carreras por inning de ${t.name} y de la liga`,
+            onPick: (r, c) => { if (note && r != null && c != null) note.textContent = inningCell(d, r, c); }
+          }));
+        } catch (e) { console.warn('mapa de calor', e); hb.parentNode.hidden = true; }
+      };
+      const hb0 = el.querySelector('#inn-heat');
+      if (hb0 && inn) drawHeat(hb0, inn);
+      else if (hb0 && innWait) {
+        innP.then(d => {
+          const hb = ctx.alive() && el.querySelector('#inn-heat.fi-heat-espera');
+          if (!hb) return;
+          if (!d) { hb.parentNode.hidden = true; return; } // sin datos o falló: la sección no sale, como antes
+          hb.classList.remove('fi-heat-espera');
+          hb.innerHTML = '';
+          hb.nextElementSibling.textContent = inningNote(d);
+          drawHeat(hb, d);
+        });
+      }
 
       const box = el.querySelector('#diff-chart');
       if (box && me) {
@@ -341,21 +495,75 @@
     const seg = Math.min(3, Math.floor(p / 25)), w = Math.round((p - seg * 25) * 4);
     return `--a:var(${PC_STOPS[seg]});--b:var(${PC_STOPS[seg + 1]});--w:${w}%`;
   }
-  function pctBars(me, pool, defs, nOf, lg, anim) {
-    let i = 0;
-    const rows = defs.map(([label, get, hi, fmt, k, lgOf]) => {
+  // El percentil de cada número: [{label, p, v, fmt}], con p null si no hay dato. Lo usan la ficha y el comparador.
+  function pctRows(me, pool, defs, nOf, lg) {
+    return defs.map(([label, get, hi, fmt, k, lgOf]) => {
       const v = get(me);
       const lgv = lgOf ? lgOf(lg) : null;
       const adj = x => (k && lgv != null ? C.shrink(get(x), nOf(x), lgv, k) : get(x));
-      const p = C.pctRank(adj(me), pool.map(adj).filter(x => x != null), hi);
-      if (p == null || v == null) return '';
-      return `<li class="s${Math.round(p / 25)}${p < 20 ? ' lo' : ''}" style="--p:${p / 100};--i:${i++};${pctColor(p)}">` +
-        `<span class="fpc-l">${esc(label)}</span>` +
-        `<span class="fpc-t"><i class="fpc-f"></i><span class="fpc-b"><b><span class="sr">percentil </span>${p}</b></span></span>` +
-        `<span class="fpc-v">${esc(fmt(v))}</span></li>`;
-    }).join('');
-    return `<ul class="fpc${anim ? ' anim' : ''}">${rows}<li class="fpc-leg" aria-hidden="true"><span></span>` +
-      '<span class="fpc-leg-t"><span>peor</span><span>promedio</span><span>mejor</span></span><span></span></li></ul>';
+      const p = v == null ? null : C.pctRank(adj(me), pool.map(adj).filter(x => x != null), hi);
+      return { label, p, v, fmt };
+    });
+  }
+  // La bola con el número sobre su barra (la clase, el color y el lugar de la bola).
+  const pctAttrs = (p, i) => `class="s${Math.round(p / 25)}${p < 20 ? ' lo' : ''}" style="--p:${p / 100};--i:${i};${pctColor(p)}"`;
+  const pctTrack = p => `<span class="fpc-t"><i class="fpc-f"></i><span class="fpc-b"><b><span class="sr">percentil </span>${p}</b></span></span>`;
+  const PCT_LEG = '<span class="fpc-leg-t"><span>peor</span><span>promedio</span><span>mejor</span></span>';
+  function pctBars(me, pool, defs, nOf, lg, anim) {
+    let i = 0;
+    const rows = pctRows(me, pool, defs, nOf, lg).map(x => (x.p == null ? '' : `<li ${pctAttrs(x.p, i++)}>` +
+      `<span class="fpc-l">${esc(x.label)}</span>${pctTrack(x.p)}<span class="fpc-v">${esc(x.fmt(x.v))}</span></li>`)).join('');
+    return `<ul class="fpc${anim ? ' anim' : ''}">${rows}<li class="fpc-leg" aria-hidden="true"><span></span>${PCT_LEG}<span></span></li></ul>`;
+  }
+
+  // Calificados (la regla de Líderes) y los grupos contra los que se miden los percentiles: los bateadores calificados;
+  // los lanzadores, contra los de su mismo papel (abridores o relevistas: los relevistas ponchan más por entrar a tirar
+  // duro poco rato). show: si hay muestra para mostrar percentiles.
+  function quals(games) {
+    const tg = PC.teamGames(games, 'R');
+    const maxG = Math.max(0, ...Object.keys(tg).map(k => tg[k]));
+    const gOf = x => (x.team && tg[x.team]) || maxG;
+    return { gOf, bat: x => x.line.PA >= C.QUAL_PA * gOf(x), pit: x => x.line.OUTS / 3 >= C.QUAL_IP * gOf(x) };
+  }
+  function pctPool(st, q, kind, x) {
+    if (kind === 'bat') {
+      const pool = st.bats.filter(q.bat);
+      return { pool, show: pool.length >= 10 && x.line.PA >= 50, nOf: y => y.line.PA, defs: BAT_PCT, who: `los ${pool.length} bateadores calificados` };
+    }
+    const same = y => starter(y) === starter(x);
+    let pool = st.pits.filter(y => same(y) && y.line.OUTS >= (starter(x) ? 45 : 30));
+    if (pool.length < 12) pool = st.pits.filter(y => same(y) && y.line.OUTS >= 15);
+    return { pool, show: pool.length >= 8 && x.line.BF >= 40, nOf: y => y.line.BF, defs: PIT_PCT, who: `${pool.length} ${starter(x) ? 'abridores' : 'relevistas'} de la liga` };
+  }
+  // La temporada más reciente, distinta de not, en que jugó en la LVBP según su carrera (yearByYear de API.person, que
+  // la trae completa aunque se pida otra temporada), o null.
+  function lastLvbpSeason(p, not) {
+    let best = null;
+    for (const s of (p && p.stats) || []) {
+      if (!s.type || s.type.displayName !== 'yearByYear') continue;
+      for (const x of s.splits || []) {
+        const y = x && x.league && x.league.id === API.LEAGUE ? +x.season : NaN;
+        if (y && y !== not && (best == null || y > best)) best = y;
+      }
+    }
+    return best;
+  }
+  // El aviso de arriba cuando se muestran datos de otra temporada: "Datos de 2025-26: todavía no juega en 2026-27." (la
+  // elegida es la en curso y todavía no ha jugado) o "…: no jugó en la LVBP 2019-20." quien: '' (la ficha) o los
+  // apellidos (el comparador); varios: verbo en plural.
+  function awayNote(shown, away, quien, varios) {
+    const todavia = away > shown && away === API.currentSeason();
+    const verbo = todavia ? (varios ? 'todavía no juegan en' : 'todavía no juega en') : (varios ? 'no jugaron en la LVBP' : 'no jugó en la LVBP');
+    return `<p class="fi-aviso"><b>Datos de ${esc(PC.seasonLabel(shown))}:</b> <span>${quien ? esc(quien) + ' ' : ''}${verbo} ${esc(PC.seasonLabel(away))}.</span></p>`;
+  }
+
+  // Papel principal en la temporada: 'bat', 'pit' o null. pitcher: si su posición es lanzador (la ficha la sabe por la
+  // API de la persona; el comparador, por la de sus estadísticas).
+  function mainRole(sb, sp, pitcher) {
+    const isPitcher = !!pitcher || !!(sp && (!sb || sp.line.BF > sb.line.PA));
+    const showBat = !!(sb && sb.line.PA > 0 && (!isPitcher || sb.line.PA >= 20));
+    const showPit = !!(sp && sp.line.BF > 0);
+    return { main: showPit && isPitcher ? 'pit' : showBat ? 'bat' : showPit ? 'pit' : null, showBat, showPit, isPitcher };
   }
 
   const COUNTRY = { 'Dominican Republic': 'Rep. Dominicana', USA: 'EE. UU.', Panama: 'Panamá', Mexico: 'México', Curacao: 'Curazao', Japan: 'Japón', Canada: 'Canadá', Peru: 'Perú' };
@@ -372,23 +580,36 @@
     async render(el, args, ctx) {
       const pid = +args[0];
       if (!pid) { location.hash = '#/lideres'; return; }
-      const season = PC.state.season;
-      const [pd, st, games] = await Promise.all([API.person(pid, season), PC.statsCtx(season, 'R'), PC.seasonGames(season)]);
+      // Sin juegos en la temporada elegida (la 2026-27 antes del 12/10, o uno que todavía no debuta) se muestra su última
+      // temporada con datos en la LVBP, y se dice arriba. Comparar con… y Compartir usan la temporada que se muestra.
+      const want = PC.state.season;
+      const load = s => Promise.all([API.person(pid, s), PC.statsCtx(s, 'R'), PC.seasonGames(s)]);
+      let season = want;
+      let [pd, st, games] = await load(season);
       if (!ctx.alive()) return;
-      const p = pd.people && pd.people[0];
+      let p = pd.people && pd.people[0];
       if (!p) { el.innerHTML = back('#/lideres') + U.empty('Jugador no encontrado'); return; }
+      const roleIn = s2 => mainRole(s2.batById.get(pid), s2.pitById.get(pid), p.primaryPosition && p.primaryPosition.code === '1').main;
+      let away = null; // la temporada elegida, cuando se muestra otra
+      if (!roleIn(st)) {
+        const alt = lastLvbpSeason(p, want);
+        if (alt) {
+          const [pd2, st2, games2] = await load(alt);
+          if (!ctx.alive()) return;
+          const p2 = pd2.people && pd2.people[0];
+          if (p2 && roleIn(st2)) { away = want; season = alt; pd = pd2; st = st2; games = games2; p = p2; }
+        }
+      }
       const lvbp = s => s && s.league && s.league.id === API.LEAGUE;
       const block = (type, group) => (p.stats || []).filter(s => s.type && s.type.displayName === type && s.group && s.group.displayName === group)
         .reduce((a, s) => a.concat((s.splits || []).filter(lvbp)), []);
-      const tg = PC.teamGames(games, 'R');
-      const maxG = Math.max(0, ...Object.keys(tg).map(k => tg[k]));
-      const gOf = x => (x.team && tg[x.team]) || maxG;
+      const q = quals(games), gOf = q.gOf;
       const lg = st.lg;
       const anim = !ctx.data.drawn; // los percentiles entran animados solo la primera vez, no en cada refresco
       ctx.data.drawn = true;
 
       const sb = st.batById.get(pid), sp = st.pitById.get(pid);
-      const isPitcher = (p.primaryPosition && p.primaryPosition.code === '1') || (sp && (!sb || sp.line.BF > sb.line.PA));
+      const { main, showBat, isPitcher } = mainRole(sb, sp, p.primaryPosition && p.primaryPosition.code === '1');
       let tid = (sb && sb.team) || (sp && sp.team) || null, lastTeam = false;
       // sin juegos en esta temporada: la insignia del último equipo de su carrera en la LVBP (la temporada más
       // reciente); si no tiene ninguna, la del equipo actual, solo si es de la liga (suele ser uno de MLB)
@@ -400,13 +621,9 @@
         tid = last ? last.team.id : p.currentTeam && PC.TEAMS[p.currentTeam.id] ? p.currentTeam.id : null;
         lastTeam = !!tid;
       }
-      const showBat = sb && sb.line.PA > 0 && (!isPitcher || sb.line.PA >= 20);
-      const showPit = sp && sp.line.BF > 0;
-      const main = showPit && isPitcher ? 'pit' : showBat ? 'bat' : showPit ? 'pit' : null;
-
+      const showPit = !!(sp && sp.line.BF > 0);
       // calificados y su número mínimo (la misma regla de Líderes)
-      const batQual = x => x.line.PA >= C.QUAL_PA * gOf(x);
-      const pitQual = x => x.line.OUTS / 3 >= C.QUAL_IP * gOf(x);
+      const batQual = q.bat, pitQual = q.pit;
 
       // ----- la pizarra -----
       const pos = p.primaryPosition ? p.primaryPosition.abbreviation : '';
@@ -434,29 +651,21 @@
         hero += statLine(cells) + foot([pill, roleTxt].filter(Boolean));
       }
       hero += '</header>';
-      let html = back('#/lideres') + hero;
+      // arriba a la derecha: Comparar con… (si jugó esta temporada) y Compartir
+      const cmp = main && canPick() ? `<button type="button" class="fi-act fi-cmp" data-cmp>${I_CMP}<span>Comparar<span class="cmp-x"> con…</span></span></button>` : '';
+      let html = topBar(back('#/lideres'), cmp + shareBtn()) + (away != null ? awayNote(season, away) : '') + hero;
       if (!main) html += U.empty(`Sin juegos en la LVBP ${PC.seasonLabel(season)}`, 'Cambia la temporada arriba para ver otras.');
 
       // ----- rejilla y percentiles -----
       // El papel principal ya tiene sus 5 números en la pizarra: aquí va el resto. El otro papel (un lanzador que
       // también batea) va completo.
+      const pctHelp = who => `Comparado con ${who}, ajustando cada número por el tamaño de su muestra. 50 es el promedio; 90 significa que supera al 90%.`;
       const section = (kind, isMain) => {
-        if (kind === 'bat') {
-          const b = sb, r = b.r, l = b.line;
-          const pool = st.bats.filter(batQual);
-          const key = isMain ? [] : keyVals(b, KEY_BAT);
-          return `<section class="sec">${U.head(`Bateo ${PC.seasonLabel(season)}`)}${grid(key.concat(restBat(r, l)))}</section>` +
-            (pool.length >= 10 && l.PA >= 50 ? `<section class="sec">${U.head('Percentiles en la liga', `Comparado con los ${pool.length} bateadores calificados, ajustando cada número por el tamaño de su muestra. 50 es el promedio; 90 significa que supera al 90%.`)}${pctBars(b, pool, BAT_PCT, y => y.line.PA, lg, anim)}</section>` : '');
-        }
-        const x = sp, r = x.r, l = x.line;
-        // Abridores contra abridores y relevistas contra relevistas: los relevistas ponchan más por entrar a tirar duro poco rato.
-        const roleP = starter(x) ? 'abridores' : 'relevistas';
-        const same = y => starter(y) === starter(x);
-        let pool = st.pits.filter(y => same(y) && y.line.OUTS >= (starter(x) ? 45 : 30));
-        if (pool.length < 12) pool = st.pits.filter(y => same(y) && y.line.OUTS >= 15);
-        const key = isMain ? [] : keyVals(x, KEY_PIT);
-        return `<section class="sec">${U.head(`Pitcheo ${PC.seasonLabel(season)}`)}${grid(key.concat(restPit(r, l)))}</section>` +
-          (pool.length >= 8 && l.BF >= 40 ? `<section class="sec">${U.head('Percentiles en la liga', `Comparado con ${pool.length} ${roleP} de la liga, ajustando cada número por el tamaño de su muestra. 50 es el promedio; 90 significa que supera al 90%.`)}${pctBars(x, pool, PIT_PCT, y => y.line.BF, lg, anim)}</section>` : '');
+        const x = kind === 'bat' ? sb : sp, r = x.r, l = x.line;
+        const P = pctPool(st, q, kind, x);
+        const key = isMain ? [] : keyVals(x, kind === 'bat' ? KEY_BAT : KEY_PIT);
+        return `<section class="sec">${U.head(`${kind === 'bat' ? 'Bateo' : 'Pitcheo'} ${PC.seasonLabel(season)}`)}${grid(key.concat(kind === 'bat' ? restBat(r, l) : restPit(r, l)))}</section>` +
+          (P.show ? `<section class="sec">${U.head('Percentiles en la liga', pctHelp(P.who))}${pctBars(x, P.pool, P.defs, P.nOf, lg, anim)}</section>` : '');
       };
       if (main) html += section(main, true);
       if (main === 'pit' && showBat) html += section('bat', false);
@@ -525,6 +734,24 @@
       html += U.fresh(Math.min(API.when(pd, games), st.t || Date.now()));
       el.innerHTML = html;
 
+      // Compartir: el nombre, el equipo y 3 números de su papel. Comparar con…: elige otro del mismo grupo.
+      onShare(el, () => {
+        const tm = tid && PC.TEAMS[tid] ? ` (${team(tid).short})` : '';
+        const nums = main === 'bat' ? `${F.avg(sb.r.AVG)} AVE, ${sb.line.HR} HR, ${F.avg(sb.r.OPS)} OPS`
+          : main === 'pit' ? `${F.era(sp.r.ERA)} EFE, ${sp.line.W}-${sp.line.L}, ${sp.line.SO} K en ${F.ip(sp.line.OUTS)} IL` : '';
+        return { title: p.fullName, text: `${p.fullName}${tm}${nums ? ': ' + nums : ''} en la LVBP ${PC.seasonLabel(season)}`, url: `#/jugador/${pid}?t=${season}` };
+      });
+      const cb = el.querySelector('[data-cmp]');
+      if (cb) {
+        cb.addEventListener('click', async () => {
+          let r = null;
+          try {
+            r = await PC.pickPlayer({ titulo: `Comparar a ${C.surname ? C.surname(p.fullName) : p.fullName} con…`, grupo: main === 'bat' ? 'bateo' : 'pitcheo', temporada: season, excluir: [pid] });
+          } catch (e) { console.warn('elegir jugador', e); }
+          if (r && r.id && r.id !== pid && ctx.alive()) PC.go(`#/comparar/${pid}/${r.id}`);
+        });
+      }
+
       const box = el.querySelector('#pl-chart');
       if (box && ctx.data.logRows) {
         const hit = ctx.data.kind === 'hitting';
@@ -538,4 +765,12 @@
       }
     }
   });
+
+  // Lo que la ficha comparte con el comparador (js/comparar.js): la barra de arriba, los números clave, los percentiles
+  // y sus grupos, y el papel de cada jugador. Así los dos dicen lo mismo de un jugador.
+  PC.ficha = {
+    I_LEFT, I_SHARE, I_CMP, back, topBar, shareBtn, onShare, canShare, canPick, skBack, ghost, ordinal, joinY, leagueRank,
+    KEY_BAT, KEY_PIT, BAT_PCT, PIT_PCT, pctRows, pctAttrs, pctTrack, PCT_LEG, pctPool, quals, mainRole, starter,
+    lastLvbpSeason, awayNote, notStarted, skAviso
+  };
 })(window);

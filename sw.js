@@ -7,21 +7,23 @@
    AL PUBLICAR: subir VERSION aquí y el ?v= de todos los archivos en index.html (los dos al mismo número); un archivo
    nuevo va también en SHELL. Sin eso, la gente se queda con la versión vieja: los archivos con ?v= se sirven de la
    copia sin preguntar a la red. Todos los pasos: README.md, "Publicar una versión nueva". */
-const VERSION = '5';
+const VERSION = '6';
 const APP = 'pizarra-app-v' + VERSION;
 const DATA = 'pizarra-datos-v2';
 const FONTS = 'pizarra-fuentes-v1';
 const DATA_MAX = 150, FONTS_MAX = 30;
 const Q = '?v=' + VERSION; // los mismos nombres que pide index.html
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png',
-  'styles.css' + Q, 'css/juegos.css' + Q, 'css/graficos.css' + Q, 'css/fichas.css' + Q, 'css/tablas.css' + Q, 'css/nav.css' + Q,
+  'styles.css' + Q, 'css/juegos.css' + Q, 'css/graficos.css' + Q, 'css/fichas.css' + Q, 'css/tablas.css' + Q, 'css/nav.css' + Q, 'css/app.css' + Q, 'css/tv.css' + Q,
   'js/calc.js' + Q, 'js/api.js' + Q, 'js/charts.js' + Q, 'js/core.js' + Q, 'js/juegos.js' + Q, 'js/juego.js' + Q, 'js/tabla.js' + Q,
-  'js/lideres.js' + Q, 'js/equipos.js' + Q, 'js/mas.js' + Q];
+  'js/lideres.js' + Q, 'js/equipos.js' + Q, 'js/mas.js' + Q, 'js/buscar.js' + Q, 'js/comparar.js' + Q];
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(APP);
-    await c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })));
+    // Los archivos con ?v= no cambian nunca: si la página los acaba de bajar, salen de la copia HTTP del navegador y no
+    // se bajan dos veces en la primera visita. Lo que no lleva ?v= (la página, el manifest, el ícono) se revalida.
+    await c.addAll(SHELL.map(u => new Request(u, { cache: /[?&]v=/.test(u) ? 'force-cache' : 'no-cache' })));
     // Primera instalación: se activa directo. Si ya hay una versión funcionando, espera a que la persona decida.
     // Excepción: las versiones 2 y 3 iban primero a la red, así que la página ya corre el código nuevo: no hay nada que ofrecer.
     const vieja = (await caches.has('pizarra-app-v2')) || (await caches.has('pizarra-app-v3'));

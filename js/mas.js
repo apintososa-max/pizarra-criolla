@@ -1,10 +1,51 @@
 /* Pizarra Criolla · mas.js
-   Glosario de cada métrica (qué mide y cómo se calcula, en grupos que se abren al tocarlos), formato del torneo,
-   fuente de los datos e instalación. Las explicaciones largas de la tabla (desempates, probabilidades) viven aquí. */
+   Mi equipo (elegirlo o cambiarlo), instalación, glosario de cada métrica (qué mide y cómo se calcula, en grupos que se
+   abren al tocarlos), formato del torneo y fuente de los datos. Las explicaciones largas de la tabla (desempates,
+   probabilidades) viven aquí. */
 (function (root) {
   'use strict';
   const PC = root.PC;
   const U = PC.U, esc = PC.esc;
+
+  // ---------- Mi equipo ----------
+  function favSection() {
+    const id = PC.fav.get(), t = id != null ? PC.team(id) : null;
+    return `<section class="sec ms-eq">${U.head('Mi equipo')}
+      <div class="ms-eq-fila">${t ? U.chip(id) : ''}<p class="ms-eq-nm">${t ? `<b>${esc(t.name)}</b><small>${esc(t.city)}</small>` : '<b>Sin elegir</b>'}</p>
+        <button type="button" class="btn${t ? ' ghost' : ''}" id="ms-eq" aria-label="${t ? 'Cambiar Mi equipo' : 'Elegir Mi equipo'}">${t ? 'Cambiar' : 'Elegir equipo'}</button></div>
+      <p class="note">Su juego sale primero en la lista del día y su fila se marca en la tabla.${t ? ` <a class="ms-ficha" href="#/equipo/${id}">Ver su ficha</a>` : ''}</p>
+    </section>`;
+  }
+
+  // ---------- instalar ----------
+  // Instalada: lo dice, con los accesos directos. Si no: el botón del navegador (Chrome y Edge lo ofrecen) y los pasos,
+  // primero los de este teléfono o computadora.
+  function installSection(st) {
+    const ua = navigator.userAgent || '';
+    const standalone = (root.matchMedia && root.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    const ios = /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const android = /Android/.test(ua);
+    const keys = ios ? '' : android
+      ? ' Mantén presionado su ícono para ir directo a Juegos de hoy, Tabla, Mi equipo o Buscar.'
+      : ' Con clic derecho en su ícono vas directo a Juegos de hoy, Tabla, Mi equipo o Buscar.';
+    if (standalone || st.installed) return `<section class="sec">${U.head('App instalada')}<p>Ya la tienes instalada.${keys}</p></section>`;
+    const steps = {
+      android: '<li><b>Android (Chrome):</b> menú ⋮ → <i>Instalar app</i> o <i>Agregar a la pantalla principal</i>.</li>',
+      ios: '<li><b>iPhone y iPad (Safari):</b> botón Compartir → <i>Agregar a inicio</i>.</li>',
+      pc: '<li><b>Computadora (Chrome o Edge):</b> el botón <i>Instalar</i> de la barra de dirección.</li>'
+    };
+    const order = ios ? ['ios', 'android', 'pc'] : android ? ['android', 'ios', 'pc'] : ['pc', 'android', 'ios'];
+    return `<section class="sec">${U.head('Instalar como app')}
+      <p>Pizarra Criolla funciona en el navegador y también se instala como una app más: su ícono en la pantalla de inicio, a pantalla completa y con accesos directos a Juegos de hoy, Tabla, Mi equipo y Buscar.</p>
+      ${st.installPrompt ? '<p><button type="button" class="btn" id="btn-install">Instalar la app</button></p>' : ''}
+      <ul class="steps">${steps[order[0]]}</ul>
+      <details class="ms-otros"><summary>En otro teléfono o computadora</summary><ul class="steps">${steps[order[1]]}${steps[order[2]]}</ul></details>
+    </section>`;
+  }
+  // Mi equipo cambió, o el navegador ofreció instalar (o ya se instaló): Más, si está abierta, se repinta en su lugar.
+  const onMas = () => /^#\/?mas([/?]|$)/.test(location.hash);
+  root.addEventListener('pc:fav', () => { if (onMas()) PC.refresh(); });
+  root.addEventListener('pc:instalable', () => { if (onMas()) PC.refresh(); });
 
   const G = [
     ['Bateo', [
@@ -49,13 +90,9 @@
     skeleton: 'lista',
     render(el) {
       const st = PC.state;
-      const install = st.installPrompt ? '<button type="button" class="btn" id="btn-install">Instalar en este teléfono</button>' : '';
       el.innerHTML = `<div class="page-head"><h1>Más</h1></div>
-        <section class="sec">${U.head('Instalar como app')}
-          <p>Pizarra Criolla funciona en el navegador y se puede instalar como una app más, con su ícono en la pantalla de inicio.</p>
-          <ul class="steps"><li><b>Android (Chrome):</b> menú ⋮ → <i>Instalar app</i> o <i>Agregar a la pantalla principal</i>.</li>
-          <li><b>iPhone (Safari):</b> botón Compartir → <i>Agregar a inicio</i>.</li></ul>${install}
-        </section>
+        ${favSection()}
+        ${installSection(st)}
         <section class="sec">${U.head('Cómo se juega la LVBP')}
           <ul class="steps"><li><b>Temporada regular:</b> 56 juegos por equipo, 8 contra cada rival. Si hay empate por un puesto clave puede haber juego extra de desempate, que cuenta en la tabla.</li>
           <li><b>Clasifican:</b> los 4 primeros directo al Round Robin. 5.º y 6.º juegan el comodín: al 5.º le basta un triunfo, el 6.º necesita ganar los dos.</li>
@@ -75,11 +112,21 @@
           <p>Lo que la fuente no tiene para la LVBP: velocidad de los lanzamientos y de salida de los batazos (no hay Statcast en estos estadios), ni factores de estadio. Por eso wRC+, OPS+ y EFE+ no se ajustan por estadio.</p>
           ${U.note('Datos: MLB Advanced Media. App sin relación oficial con la LVBP ni con MLB, de uso personal.')}
         </section>`;
+      // la hoja de los 8 equipos; al cerrarla, el foco vuelve a este botón (repintado si cambió el equipo)
+      el.querySelector('#ms-eq').addEventListener('click', async () => {
+        await PC.fav.elegir();
+        await PC.refresh();
+        const b = document.getElementById('ms-eq');
+        if (b) b.focus({ preventScroll: true });
+      });
       const b = el.querySelector('#btn-install');
       if (b) b.addEventListener('click', async () => {
-        try { st.installPrompt.prompt(); await st.installPrompt.userChoice; } catch (e) { /* el usuario cerró el diálogo */ }
-        st.installPrompt = null;
-        b.remove();
+        const ask = st.installPrompt;
+        st.installPrompt = null; // se usa una sola vez
+        let out = null;
+        try { ask.prompt(); out = await ask.userChoice; } catch (e) { /* el diálogo no salió */ }
+        if (!out || out.outcome !== 'accepted') PC.toast('Puedes instalarla después desde el menú del navegador');
+        PC.refresh();
       });
     }
   });

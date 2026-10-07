@@ -8,6 +8,57 @@
 .fi-back:hover { text-decoration: none; }
 @media (hover: hover) { .fi-back:hover span { text-decoration: underline; } }
 
+/* ---------- barra de arriba: la miga a la izquierda; compartir y comparar a la derecha ---------- */
+/* Los botones miden 48 px de toque pero ocupan en la fila lo mismo que la miga (márgenes negativos): la barra no crece
+   con ellos. Si no caben (letra muy grande), las acciones bajan a una segunda fila, a la derecha. " con…" va escondido y
+   sale solo si cabe: así, en un teléfono sin consultas de contenedor, queda "Comparar" (el lector oye siempre
+   "Comparar con…"). */
+.fi-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px var(--s2); min-width: 0; container-type: inline-size; }
+.fi-acts { display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto; margin-right: -12px; }
+.fi-act {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 48px; min-height: 48px;
+  margin: -12px 0; padding: 0 12px; border: 0; border-radius: 999px; background: none; color: var(--accent); cursor: pointer;
+  font: 600 var(--fs-body)/1.2 var(--font-body); white-space: nowrap; transition: transform var(--t-toque) var(--ease-out);
+}
+.fi-act:active { transform: scale(.95); }
+@media (hover: hover) { .fi-act:hover { background: var(--accent-soft); } }
+.fi-act .ic { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.fi-act .ic circle { fill: currentColor; stroke: none; }
+.fi-cmp .cmp-x { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: pre; }
+@container (min-width: 21.5em) {
+  .fi-cmp .cmp-x { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+}
+.sk-x .fi-act { color: var(--rule); pointer-events: none; }
+
+/* ---------- aviso: se muestran los datos de otra temporada (la elegida no tiene juegos de él) ---------- */
+/* arriba de la pizarra, en el tinte del color de acción: "Datos de 2025-26: todavía no juega en 2026-27." */
+.fi-aviso {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding: 10px var(--s3) 10px 14px;
+  border-radius: var(--r-m); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--ink); font-size: var(--fs-sm); line-height: 1.4;
+}
+.fi-aviso b { font-weight: 700; white-space: nowrap; }
+.fi-aviso .sk-tx { background: var(--rule-2); }
+
+/* ---------- carreras por inning: la caja del mapa de calor y la línea de lo más notorio ---------- */
+.fi-heat { background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m); padding: 10px var(--s2) 8px; min-width: 0; }
+.fi-heat-t { font-size: var(--fs-sm); color: var(--ink-2); max-width: 62ch; min-height: 1.45em; }
+/* Mientras llegan los datos (equipos.js), la caja guarda el alto que tendrá el mapa con la letra de la persona: las
+   cuentas de CH.heat (charts.js) para su forma según el ancho, que es 'vuelta' (los innings hacia abajo) en lo angosto,
+   'arriba' (el nombre encima de cada fila) en el teléfono común e 'izq' en lo ancho; debajo, la escala. La línea de lo
+   más notorio va apagada, con un texto del mismo largo. Así el mapa llega sin mover lo de abajo. Sin consultas de
+   contenedor, la forma 'arriba'. */
+.fi-heat-espera { container-type: inline-size; }
+.fi-heat-res {
+  display: flex; flex-direction: column; gap: 6px;
+  --heat-svg: calc(var(--fs-cap) * 1.7 + 3 * (var(--fs-sm) * 1.5 + max(26px, var(--fs-cap) * 2.1) + 8px) - 7px);
+}
+@container (max-width: 23.1em) { .fi-heat-res { --heat-svg: calc(var(--fs-cap) * 1.25 + 5px + 10 * (max(26px, var(--fs-sm) * 2) + 2px)); } }
+@container (min-width: 30.5em) { .fi-heat-res { --heat-svg: calc(var(--fs-cap) * 1.7 + 3 * (max(26px, var(--fs-sm) * 2.1) + 2px) - 1px); } }
+.fi-heat-res .sk { height: var(--heat-svg); }
+.fi-heat-res .fi-heat-sk-ley { align-self: center; width: 40%; height: calc(var(--fs-sm) * 1.45); }
+.fi-heat-espera + .fi-heat-t { min-height: 2.9em; } /* respaldo: el texto apagado ya ocupa sus renglones */
+
 /* ---------- índice de equipos: la fila entera se toca ---------- */
 .fi-idx a { grid-template-columns: auto minmax(0, 1fr) auto; min-height: 72px; padding: var(--s3) var(--s4) var(--s3) var(--s3); }
 .fi-idx .tm-name { gap: 2px; overflow-wrap: anywhere; hyphens: auto; }
@@ -191,12 +242,84 @@
   color: transparent; background: var(--rule); border-radius: var(--r-s);
   -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
-.fh .sk-tx { background: var(--board-2); }
+.fh .sk-tx, .cp-h .sk-tx { background: var(--board-2); }
 .fh-line .sk-tx { background: rgba(255, 255, 255, .1); }
 .tchip.sk-chip { background: var(--rule); color: transparent; }
 .fh .tchip.sk-chip { background: var(--board-2); }
 /* los enlaces de la maqueta no llevan a nada: ni se tocan ni se iluminan */
 .sk-x a { color: var(--rule); pointer-events: none; }
+
+/* ---------- comparador (js/comparar.js) ---------- */
+/* las dos tarjetas lado a lado: dos pizarras chicas con la insignia, el apellido grande y una línea de números */
+.cp-heads { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.cp-h {
+  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: var(--s3);
+  border-radius: var(--r-l); box-shadow: var(--shadow); color: var(--chalk);
+  background: var(--board) radial-gradient(120% 80% at 0% 0%, rgba(255, 255, 255, .08), transparent 60%);
+}
+.cp-eb { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font: 700 var(--fs-cap)/1.3 var(--font-body); letter-spacing: .05em; text-transform: uppercase; color: var(--chalk-dim); overflow-wrap: anywhere; -webkit-hyphens: auto; hyphens: auto; }
+.cp-eb > span { min-width: 0; }
+.cp-eb .tchip { flex: none; }
+.cp-rol { color: var(--chalk); font-weight: 600; }
+.cp-h .tchip.sk-chip { background: var(--board-2); color: transparent; }
+.skel .cp-chg { display: inline-flex; align-items: center; }
+.cp-n { font: 600 var(--fs-sm)/1.25 var(--font-body); color: var(--chalk-dim); overflow-wrap: anywhere; hyphens: auto; }
+.cp-n b { display: block; font: 800 var(--fs-h2)/1.05 var(--font-display); text-transform: uppercase; letter-spacing: .02em; color: var(--chalk); }
+.cp-n a { color: inherit; }
+@media (hover: hover) { .cp-n a:hover { text-decoration: none; } .cp-n a:hover b { text-decoration: underline; } }
+.cp-h a:focus-visible { outline-color: var(--bulb); }
+.cp-sub { font-size: var(--fs-sm); line-height: 1.3; color: var(--chalk-dim); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cp-chg {
+  align-self: flex-start; margin-top: auto; min-height: 44px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 999px;
+  background: none; color: var(--chalk); font: 600 var(--fs-sm)/1.2 var(--font-body); cursor: pointer; transition: transform var(--t-toque) var(--ease-out);
+}
+.cp-chg:active { transform: scale(.95); }
+.cp-chg:focus-visible { outline-color: var(--bulb); }
+/* el lado que falta: hueco punteado con su botón */
+.cp-h.cp-vacio { justify-content: center; gap: var(--s3); color: var(--ink-2); background: var(--card); border: 1.5px dashed var(--rule-2); box-shadow: none; }
+.cp-vacio .cp-sub { color: var(--ink-2); font-size: var(--fs-body); }
+.cp-vacio .btn { align-self: flex-start; }
+.cp-why .btn { margin-top: 2px; }
+
+/* "Mejor en": una línea por jugador */
+.cp-best { display: flex; flex-direction: column; gap: 6px; padding: var(--s3) var(--s4); background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m); }
+.cp-best p { font-size: var(--fs-body); line-height: 1.4; color: var(--ink-2); }
+.cp-best b { color: var(--ink); }
+
+/* los números lado a lado: el de cada uno a su lado y la sigla en medio; el mejor, en negrita con un punto hacia la sigla.
+   Con poco espacio (la letra grande; también sin consultas de contenedor) el relleno y los números se achican y la sigla
+   puede partirse ("AVE / rival"); con espacio, los de siempre. */
+.cp-tw { container-type: inline-size; }
+.cp-t {
+  width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-m); overflow: hidden;
+}
+.cp-t th, .cp-t td { padding: 9px var(--s2); border-bottom: 1px solid var(--rule); }
+.cp-t tbody tr:last-child > * { border-bottom: 0; }
+.cp-t thead th { font: 700 var(--fs-sm)/1.2 var(--font-body); color: var(--ink); text-align: center; overflow-wrap: anywhere; }
+.cp-t thead th:first-child { text-align: left; }
+.cp-t thead th:last-child { text-align: right; }
+.cp-t tbody th { width: 1%; text-align: center; white-space: normal; font: 700 var(--fs-cap)/1.2 var(--font-body); letter-spacing: .04em; color: var(--muted); }
+.cp-t td { width: 50%; font: 600 var(--fs-body)/1.2 var(--font-body); color: var(--ink-2); white-space: nowrap; }
+@container (min-width: 17.5em) {
+  .cp-t th, .cp-t td { padding-left: var(--s3); padding-right: var(--s3); }
+  .cp-t td { font-size: var(--fs-lead); }
+  .cp-t tbody th { white-space: nowrap; }
+}
+.cp-t td:first-child { text-align: left; }
+.cp-t td:last-child { text-align: right; }
+.cp-t td.cp-w { color: var(--ink); font-weight: 800; }
+.cp-t td.cp-w::after, .cp-t td.cp-w::before { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.cp-t td.cp-w:first-child::after { content: ""; margin-left: 6px; }
+.cp-t td.cp-w:last-child::before { content: ""; margin-right: 6px; }
+
+/* percentiles: el nombre del número arriba y las dos barras de la ficha debajo (el apellido en lugar de la sigla) */
+.fpc.cp-pct > li.cp-ph { display: block; min-height: 0; padding: 10px 0 0; font: 700 var(--fs-cap)/1.2 var(--font-body); letter-spacing: .05em; color: var(--ink); }
+.fpc.cp-pct > li.cp-ph:first-child { padding-top: 2px; }
+.fpc.cp-pct > li.cp-pg { display: block; min-height: 0; }
+.cp-pgl { margin: 0; padding: 0; list-style: none; }
+.cp-pw { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-pn-t { color: var(--muted); font-size: var(--fs-cap); }
 
 @media (prefers-color-scheme: dark) {
   /* de noche todos los tonos de los percentiles son claros: número oscuro en la bola */

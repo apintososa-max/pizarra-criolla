@@ -43,6 +43,16 @@
   --g-on-home: #ffffff;  /* número sobre la ficha azul del home club */
   --g-field: #f6f8f5;    /* mapa de batazos: grama, apenas teñida (el punto dorado queda a 3:1) */
   --g-dirt: #faf7f2;     /* mapa de batazos: tierra del cuadro (ídem) */
+  /* la temporada fecha por fecha: los equipos no marcados (3,1:1 contra la tarjeta, lo que pide WCAG 1.4.11 para lo que
+     hay que ver; el marcado va en --accent, más grueso y con halo) */
+  --g-bump: #8a92a6;
+  /* mapa de calor: un solo tono (el azul de la app), de poco a mucho, en 6 pasos, validado (--ordinal) contra la
+     tarjeta; el número de cada celda en su color, a 4,77:1 o más */
+  --g-heat-1: #a2b6e1; --g-heat-2: #849cd2; --g-heat-3: #6782c4; --g-heat-4: #4968b4; --g-heat-5: #2947a0; --g-heat-6: #0d238a;
+  --g-on-heat-1: #0d1530; --g-on-heat-2: #0d1530; --g-on-heat-3: #0d1530; --g-on-heat-4: #ffffff; --g-on-heat-5: #ffffff; --g-on-heat-6: #ffffff;
+  /* modo TV: la curva sobre la pizarra azul (los colores de los gráficos no se ven ahí); más de 4,5:1 contra --board */
+  --tv-away: #e3b31c; --tv-home: #9db8ff;
+  --fav: #b98600;        /* Mi equipo: la estrella de la lista del día (3,2:1 contra la tarjeta) */
   --bulb-edge: #414c66;  /* borde de una base ocupada sobre la tarjeta (el amarillo solo da 1,5:1 contra el blanco) */
   --shadow: 0 1px 2px rgba(13, 21, 48, .06), 0 6px 18px rgba(13, 21, 48, .07);
   --stars: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 96'%3E%3Cpath fill='white' d='M13.4,74.9 L15.1,79.8 L20.3,79.9 L16.2,83.0 L17.6,87.9 L13.4,85.0 L9.2,87.9 L10.6,83.0 L6.6,79.9 L11.7,79.8Z M29.5,41.4 L31.2,46.3 L36.4,46.4 L32.3,49.5 L33.8,54.4 L29.5,51.5 L25.3,54.4 L26.8,49.5 L22.7,46.4 L27.8,46.3Z M56.8,16.1 L58.5,21.0 L63.6,21.1 L59.6,24.2 L61.0,29.2 L56.8,26.2 L52.6,29.2 L54.0,24.2 L49.9,21.1 L55.1,21.0Z M91.4,2.5 L93.1,7.4 L98.3,7.5 L94.2,10.6 L95.6,15.6 L91.4,12.6 L87.2,15.6 L88.7,10.6 L84.6,7.5 L89.7,7.4Z M128.6,2.5 L130.3,7.4 L135.4,7.5 L131.3,10.6 L132.8,15.6 L128.6,12.6 L124.4,15.6 L125.8,10.6 L121.7,7.5 L126.9,7.4Z M163.2,16.1 L164.9,21.0 L170.1,21.1 L166.0,24.2 L167.4,29.2 L163.2,26.2 L159.0,29.2 L160.4,24.2 L156.4,21.1 L161.5,21.0Z M190.5,41.4 L192.2,46.3 L197.3,46.4 L193.2,49.5 L194.7,54.4 L190.5,51.5 L186.2,54.4 L187.7,49.5 L183.6,46.4 L188.8,46.3Z M206.6,74.9 L208.3,79.8 L213.4,79.9 L209.4,83.0 L210.8,87.9 L206.6,85.0 L202.4,87.9 L203.8,83.0 L199.7,79.9 L204.9,79.8Z'/%3E%3C/svg%3E");
@@ -84,6 +94,12 @@
     /* marcadores con contraste de 3:1 o más contra la tarjeta */
     --pc-c2: #5b8ff0; --pc-c1: #6f86c0; --pc-m: #737a94; --pc-h1: #c9a43a; --pc-h2: #ffcc00;
     --g-li: #7d89a8; --g-on-home: #081026; --g-field: #16244a; --g-dirt: #1c2c55;
+    --g-bump: #5f6a86; /* 3,07:1 contra la tarjeta de noche */
+    /* de noche el mapa de calor se da vuelta: lo poco se hunde en la tarjeta y lo mucho se prende (número a 5,31:1 o más) */
+    --g-heat-1: #2849ad; --g-heat-2: #4567c0; --g-heat-3: #6586d5; --g-heat-4: #86a3e6; --g-heat-5: #a9c0f6; --g-heat-6: #cfdeff;
+    --g-on-heat-1: #ffffff; --g-on-heat-2: #ffffff; --g-on-heat-3: #081026; --g-on-heat-4: #081026; --g-on-heat-5: #081026; --g-on-heat-6: #081026;
+    --tv-away: #ffd21a; --tv-home: #adc4ff;
+    --fav: #ffcc00;
     --bulb-edge: #ffd21a;
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .3);
     --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4h8L6 9z' fill='%23b7c0d8'/%3E%3C/svg%3E");

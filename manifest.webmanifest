@@ -3,15 +3,59 @@
   "short_name": "Pizarra",
   "description": "Juegos en vivo, posiciones y métricas de la LVBP, calculadas a medida que avanzan los juegos.",
   "lang": "es-VE",
+  "dir": "ltr",
   "start_url": "./#/juegos",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#081026",
   "theme_color": "#00247d",
+  "categories": ["sports"],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Juegos de hoy",
+      "short_name": "Hoy",
+      "description": "La lista de los juegos de hoy",
+      "url": "./#/juegos",
+      "icons": [
+        { "src": "icons/atajo-juegos-96.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "icons/atajo-juegos-mask-96.png", "sizes": "96x96", "type": "image/png", "purpose": "maskable" }
+      ]
+    },
+    {
+      "name": "Tabla de posiciones",
+      "short_name": "Tabla",
+      "description": "La tabla de la temporada",
+      "url": "./#/tabla",
+      "icons": [
+        { "src": "icons/atajo-tabla-96.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "icons/atajo-tabla-mask-96.png", "sizes": "96x96", "type": "image/png", "purpose": "maskable" }
+      ]
+    },
+    {
+      "name": "Mi equipo",
+      "short_name": "Mi equipo",
+      "description": "La ficha de tu equipo",
+      "url": "./#/mi-equipo",
+      "icons": [
+        { "src": "icons/atajo-mi-equipo-96.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "icons/atajo-mi-equipo-mask-96.png", "sizes": "96x96", "type": "image/png", "purpose": "maskable" }
+      ]
+    },
+    {
+      "name": "Buscar jugadores y equipos",
+      "short_name": "Buscar",
+      "description": "Buscar un jugador o un equipo",
+      "url": "./#/buscar",
+      "icons": [
+        { "src": "icons/atajo-buscar-96.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "icons/atajo-buscar-mask-96.png", "sizes": "96x96", "type": "image/png", "purpose": "maskable" }
+      ]
+    }
   ]
 }

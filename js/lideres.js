@@ -4,7 +4,7 @@
 (function (root) {
   'use strict';
   const PC = root.PC;
-  const F = PC.F, U = PC.U, esc = PC.esc, team = PC.team, C = PC.calc, API = PC.api;
+  const F = PC.F, D = PC.D, U = PC.U, esc = PC.esc, team = PC.team, C = PC.calc, API = PC.api;
 
   const L = p => p.line, R = p => p.r;
   const BAT = [
@@ -61,6 +61,77 @@
       : { ok: p => L(p).OUTS / 3 >= C.QUAL_IP * g(p), min: Math.round(C.QUAL_IP * maxG), unit: 'IL', loose: p => L(p).OUTS >= 15 };
   }
 
+  // ---------- la forma: los últimos 14 días ----------
+  // Una sola consulta por grupo (API.statsRange) con las 2 semanas que terminan en la última fecha con juegos terminados
+  // de la temporada regular. Debajo de cada número, el de esas 2 semanas:
+  //  - en las tasas (AVE, OPS, EFE…), el valor con ▲▼, que dice para dónde se movió frente a su temporada: en verde y
+  //    negrita si es para bien (en EFE o K% de bateador, bajar es bueno), en gris y letra normal si es para mal. El peso,
+  //    no solo el color, dice cuál es cuál;
+  //  - en los conteos (HR, CI…), "+N": lo que sumó, sin flecha;
+  //  - sin juegos, "no jugó"; en una tasa con muy poco juego, "poco juego". Nunca una raya sola.
+  // El lector oye lo mismo que se ve. La lista no espera por esto: si la consulta tarda, cada fila guarda su sitio y se
+  // llena al llegar.
+  const DAYS = 14;
+  const FORM_MIN = { bat: 15, pit: 15 }; // PA o bateadores enfrentados para que la tasa diga algo
+  const formMemo = new WeakMap(); // respuesta de la API → {id: {line, r}}
+  function formWindow(games) {
+    let last = '';
+    for (const g of games) if (g.type === 'R' && g.status === 'final' && g.date > last) last = g.date;
+    return last ? { from: D.add(last, 1 - DAYS), to: last } : null;
+  }
+  function recentById(d, group, lg) {
+    if (!d) return null;
+    let m = formMemo.get(d);
+    if (m && m.lg === lg) return m.by;
+    const lines = new Map();
+    const splits = (d.stats && d.stats[0] && d.stats[0].splits) || [];
+    for (const s of splits) {
+      if (!s.player || (s.league && s.league.id !== API.LEAGUE)) continue;
+      const line = group === 'bat' ? C.batLine(s.stat) : C.pitLine(s.stat);
+      const prev = lines.get(s.player.id);
+      lines.set(s.player.id, prev ? C.sum([prev, line]) : line); // un cambio de equipo en esas 2 semanas: se suman
+    }
+    const by = new Map();
+    lines.forEach((line, id) => by.set(id, { line, r: group === 'bat' ? C.bat(line, lg) : C.pit(line, lg) }));
+    formMemo.set(d, { lg, by });
+    return by;
+  }
+  const ARROW = { up: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 1.5l4 6.5H1z"/></svg>', down: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 8.5L1 2h8z"/></svg>' };
+  // El HTML de la forma de un jugador para la métrica m (o '' si todavía no llegó). cls: la clase (el color y el peso),
+  // vis: lo que se ve (HTML), sr: lo mismo, dicho para el lector.
+  function formHTML(p, rec, m, group) {
+    if (!rec) return '';
+    const out = (cls, vis, sr) => `<span class="${cls}"><span class="sr">Últimos 14 días: ${esc(sr)}</span><span aria-hidden="true">${vis}</span></span>`;
+    const x = rec.get(p.id);
+    if (!x) return out('ld-f0', 'no jugó', 'no jugó');
+    if (!m.rate) {
+      const t = m.fmt(m.get(x) || 0);
+      return out('ld-fn', esc('+' + t), `sumó ${t}`);
+    }
+    const v = m.get(x), s = m.get(p);
+    if (v == null || (group === 'bat' ? x.line.PA : x.line.BF) < FORM_MIN[group]) return out('ld-f0', 'poco juego', 'poco juego');
+    const val = m.fmt(v);
+    const rel = s == null ? 0 : (v - s) / (Math.abs(s) || 1e-9);
+    if (Math.abs(rel) < 0.05) return out('ld-fv', esc(val), val); // casi igual que en su temporada: sin flecha
+    const up = rel > 0, better = m.asc ? !up : up;
+    return out(`ld-fv ${better ? 'mejor' : 'peor'}`, `<i class="ld-fa">${up ? ARROW.up : ARROW.down}</i>${esc(val)}`,
+      `${val}, flecha ${up ? 'arriba' : 'abajo'}, para ${better ? 'bien' : 'mal'}`);
+  }
+
+  // "del 14 al 27 dic" (o "del 20 dic al 2 ene")
+  const span = w => {
+    const a = D.short(w.from), b = D.short(w.to), ma = a.split(' ').slice(1).join(' ');
+    return ma && ma === b.split(' ').slice(1).join(' ') ? `del ${a.split(' ')[0]} al ${b}` : `del ${a} al ${b}`;
+  };
+  // ¿Lleva forma? Solo la temporada regular (el Round Robin y la final duran pocas semanas) y si el motor la trae.
+  const formOn = phase => phase === 'R' && typeof API.statsRange === 'function';
+  // La línea que explica el número chico (lista); en la tabla lo dice el título de la columna "14 días". Las flechas,
+  // para el lector, dichas en palabras; "en verde y negrita" se ve como lo que describe.
+  const LEY_ARROWS = `<span aria-hidden="true"><i class="ld-fa">${ARROW.up}</i><i class="ld-fa">${ARROW.down}</i></span><span class="sr">flecha arriba o abajo</span>`;
+  const formLegend = when => `Debajo de cada número, sus últimos 14 días (<span class="ld-nw">${esc(when)}</span>): en los promedios, ${LEY_ARROWS} ` +
+    'frente a su temporada, <b class="ld-bien">en verde y negrita</b> si es para bien; en los totales, lo que sumó.';
+  const formTitle = when => `Los últimos 14 días (${when}): en los promedios, ▲▼ frente a su temporada, en verde y negrita si es para bien; en los totales, lo que sumó.`;
+
   // Íconos de Lista y Tabla
   const I_LIST = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.6" cy="6.5" r="1.1"/><circle cx="4.6" cy="12" r="1.1"/><circle cx="4.6" cy="17.5" r="1.1"/></svg>';
   const I_GRID = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v15M14.5 4.5v15"/></svg>';
@@ -96,11 +167,17 @@
           `<span class="lt-who">${gh(SK_NAMES[i % 4])}<span class="tchip s">LVB</span></span></span></th>` +
           `${times(7, () => `<td>${gh('.000')}</td>`)}</tr>`) + '</tbody></table></div></section>';
     }
-    return head + `<ol class="leaders ld-list"><li class="ld-top"><span class="ld-rank"></span>` +
-      `<span class="ld-who"><b>${gh(SK_NAMES[0])}</b></span><span class="ld-v">${gh('.000')}</span>` +
+    // con la forma de 14 días: su línea arriba de la lista y un número chico debajo de cada valor
+    const form = formOn(a[3] === 'L' || a[3] === 'W' ? a[3] : 'R');
+    const val = () => (form ? `<span class="ld-vf"><span class="ld-v">${gh('.000')}</span><span class="ld-f">${gh('.000')}</span></span>` : `<span class="ld-v">${gh('.000')}</span>`);
+    const ley = `<p class="ld-ley">${gh('Debajo de cada número, sus últimos 14 días (')}<span class="ld-nw">${gh('del 00 al 00 dic')}</span>` +
+      `${gh('): en los promedios, ▲▼ frente a su temporada, ')}<b class="ld-bien">${gh('en verde y negrita')}</b>${gh(' si es para bien; en los totales, lo que sumó.')}</p>`;
+    return head + (form ? ley : '') +
+      `<ol class="leaders ld-list"><li class="ld-top"><span class="ld-rank"></span>` +
+      `<span class="ld-who"><b>${gh(SK_NAMES[0])}</b></span>${val()}` +
       `<small class="ld-ctx"><span class="tchip s">LVB</span> ${gh(line)}</small></li>` +
       times(8, i => `<li><span class="ld-rank">${gh(String(i + 2))}</span><span class="ld-who"><b>${gh(SK_NAMES[(i + 1) % 4])}</b> ` +
-        `<span class="tchip s">LVB</span><small>${gh(line)}</small></span><span class="ld-v">${gh('.000')}</span></li>`) + '</ol>';
+        `<span class="tchip s">LVB</span><small>${gh(line)}</small></span>${val()}</li>`) + '</ol>';
   };
 
   PC.register('lideres', {
@@ -114,7 +191,21 @@
       const prefs = PC.state.prefs;
       const phase = ['R', 'L', 'W'].indexOf(args[2]) >= 0 ? args[2] : 'R';
       const season = PC.state.season;
-      const [st, games] = await Promise.all([PC.statsCtx(season, phase), PC.seasonGames(season)]);
+      // la forma (14 días) se pide apenas se sabe la fecha de corte; la lista no la espera
+      const gamesP = PC.seasonGames(season);
+      let form = null, formDone = false;
+      // → {d, w}, null (sin fechas) o 'error'. Un corte de red no es un error de la app: no va a la consola.
+      const loadForm = gs => {
+        const w = formWindow(gs);
+        return !w ? Promise.resolve(null) : API.statsRange({ group: group === 'bat' ? 'hitting' : 'pitching', from: w.from, to: w.to, season })
+          .then(d => ({ d, w }), e => { if (!(e && (e.name === 'AbortError' || /^HTTP|fetch|network|Load failed/i.test(String(e.message))))) console.warn('forma de 14 días', e); return 'error'; });
+      };
+      const formP = !formOn(phase) ? Promise.resolve(null) : gamesP.then(loadForm, () => 'error');
+      formP.then(v => { form = v; formDone = true; });
+      const [st, games] = await Promise.all([PC.statsCtx(season, phase), gamesP]);
+      if (!ctx.alive()) return;
+      // si la forma ya estaba guardada llega en este mismo instante: se espera solo eso, no la red
+      if (!formDone) await new Promise(r => setTimeout(r, 0));
       if (!ctx.alive()) return;
       const tg = PC.teamGames(games, phase);
       const q = qualifier(group, tg);
@@ -147,16 +238,25 @@
         ${U.chips(list.map(x => ({ k: x.k, label: x.label, href: `#/lideres/${gpath}/${x.k}${phase !== 'R' ? '/' + phase : ''}` })), m.k, 'Métrica')}
       </div>`;
 
+      // la forma de 14 días: si ya llegó va en esta pintada; si no, cada fila guarda su sitio (data-f) y se llena después
+      const win = formOn(phase) ? formWindow(games) : null;
+      const rec = form && form !== 'error' && win ? recentById(form.d, group, st.lg) : null;
+      const fcell = p => (win ? `<span class="ld-f" data-f="${p.id}">${rec ? formHTML(p, rec, m, group) : ''}</span>` : '');
+      const shownP = new Map();
+
       if (!sorted.length) {
         html += U.empty('Sin datos todavía', 'Esta lista se llena sola con los primeros juegos.');
       } else if (view === 'lista') {
         // El 1.º va en estilo pizarra; el resto, filas enteras tocables que llevan al jugador.
+        if (win) html += `<p class="ld-ley">${formLegend(span(win))}</p>`;
         html += `<ol class="leaders ld-list">${sorted.slice(0, 40).map((p, i) => {
+          shownP.set(p.id, p);
           const v = m.get(p), rank = rk[i];
           const who = p.id ? `<a class="plink stretch" href="#/jugador/${p.id}">${esc(p.name)}</a>` : `<b>${esc(p.name)}</b>`;
           const tm = p.team ? U.chip(p.team, i ? 's' : 's inv') : `<small>${p.nTeams} equipos</small>`;
           const line = esc(group === 'bat' ? ctxBat(p) : ctxPit(p));
-          const val = `<span class="ld-v"><span class="sr">${esc(m.label)}: </span>${esc(m.fmt(v))}</span>`;
+          const val0 = `<span class="ld-v"><span class="sr">${esc(m.label)}: </span>${esc(m.fmt(v))}</span>`;
+          const val = win ? `<span class="ld-vf">${val0}${fcell(p)}</span>` : val0;
           return i === 0
             ? `<li class="ld-top${p.id ? ' rowlink' : ''}"><span class="ld-rank">${rank}</span><span class="ld-who">${who}</span>${val}<small class="ld-ctx">${tm} ${line}</small></li>`
             : `<li${p.id ? ' class="rowlink"' : ''}><span class="ld-rank">${rank}</span><span class="ld-who">${who} ${tm}<small>${line}</small></span>${val}</li>`;
@@ -170,7 +270,9 @@
           { k: 'n', label: 'Jugador', first: true, cls: 'name', html: (p, i) => `<span class="lt-p"><span class="lt-rk"><span class="sr">Puesto </span>${rk[i]}</span>` +
             `<span class="lt-who">${U.player(p.id, p.name)}${p.team ? U.chip(p.team, 's') : p.nTeams ? `<small>${p.nTeams} equipos</small>` : ''}</span></span>` },
           Object.assign(col(m), { cls: 'hl' })
-        ].concat([vol].concat(list.filter(x => x !== vol)).filter(x => x !== m).map(col));
+        ].concat(win ? [{ k: 'f14', label: '14 días', cls: 'ld-fc', html: p => { shownP.set(p.id, p); return fcell(p); },
+          title: formTitle(span(win)) }] : [])
+          .concat([vol].concat(list.filter(x => x !== vol)).filter(x => x !== m).map(col));
         // las filas .tap (toda la fila lleva al jugador) las atiende el oyente de core.js
         const label = `Líderes de ${group === 'bat' ? 'bateo' : 'pitcheo'} por ${m.label}${phase !== 'R' ? ', ' + phaseName(phase) : ''}`;
         html += `<section class="sec tb">${U.table(cols, sorted, { cls: 'leaders-t', label, sortable: false, rowClass: () => 'tap' })}</section>`;
@@ -182,6 +284,25 @@
         : `Promedio de la liga: EFE ${F.era(lg.ERA)} · WHIP ${F.era(lg.WHIP)} · K% ${F.pct(lg.pKPct)} · BB% ${F.pct(lg.pBBPct)}. Constante del FIP: ${F.era(lg.cFIP)}.`);
       html += U.fresh(Math.min(API.when(games), st.t || Date.now()));
       el.innerHTML = html;
+      // La forma llegó después de pintar: se llena en su sitio (ya reservado), sin mover nada. La primera consulta de un
+      // rango nuevo puede tardar en el servidor más de lo que espera api.js (medido: de 5 a 43 s): si se corta, se
+      // intenta una vez más; si tampoco, la línea de arriba lo dice.
+      if (win && !rec) {
+        const fill = v => {
+          const r2 = v && v !== 'error' ? recentById(v.d, group, st.lg) : null;
+          if (!r2) return false;
+          el.querySelectorAll('[data-f]').forEach(n => { const p = shownP.get(+n.dataset.f); if (p) n.innerHTML = formHTML(p, r2, m, group); });
+          return true;
+        };
+        const fail = () => {
+          const ley = el.querySelector('.ld-ley');
+          if (ley) ley.textContent = 'No se pudo cargar cómo les fue en los últimos 14 días.';
+        };
+        formP.then(v => {
+          if (!ctx.alive() || v === null || fill(v)) return;
+          setTimeout(() => { if (ctx.alive()) loadForm(games).then(v2 => { if (ctx.alive() && !fill(v2)) fail(); }); }, 2000);
+        });
+      }
       // la métrica elegida queda a la vista aunque esté al final de su fila: lo hace core.js al terminar de pintar
 
       // Preferencias: se repinta en el sitio (sin historial ni salto) y el foco vuelve al control que se tocó.

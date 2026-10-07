@@ -1,0 +1,266 @@
+/* Pizarra Criolla · css/tv.css
+   La segunda pantalla: el juego en horizontal para tener al lado de la TV, con retraso ajustable (js/juego.js).
+   Toda la pantalla es una sola pizarra azul, como la del estadio, y no se desplaza: arriba el estado, el retraso y
+   "Salir"; en tres columnas el marcador y el campo, la cuenta y la zona, y el duelo con la última jugada (la banda de
+   los momentos va encima de ella); abajo una franja de la curva. Los tamaños salen del alto de la pantalla (vh), con
+   tope en rem: un teléfono acostado de 360 px de alto se lee a metro y medio. Las piezas (bombillos, duelo, fichas,
+   banda, zona y campo) son las de la pizarra: css/juegos.css y css/graficos.css. */
+
+/* la curva sobre la pizarra: el dorado y el azul de los gráficos no se ven sobre el azul (el azul queda en 1,9:1),
+   así que van en versión clara: --tv-away y --tv-home, en styles.css (más de 4,5:1 contra --board) */
+
+/* con el modo TV abierto, lo de atrás no se desplaza; el aviso corto (PC.toast) va abajo, sobre el modo TV */
+html.tv-on, html.tv-on body { overflow: hidden; }
+html.tv-on .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--s3)); }
+
+/* Regla de este archivo: lo que va con unidades de contenedor (cqw, cqh) lleva antes su respaldo sin ellas (Safari 15,
+   Chrome 90-104), y el bloque @supports de abajo deja el campo y la zona dentro de su caja. */
+.tv {
+  position: fixed; inset: 0; z-index: 44; /* sobre las hojas (40-41) y debajo del aviso corto (45, core.js) */
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, .82fr) minmax(0, 1.08fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "bar bar bar" "a b c" "wp wp wp";
+  gap: 6px 16px;
+  padding: max(6px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+  background: var(--board); color: var(--chalk);
+  background-image: radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, .07), transparent 60%);
+  overflow: hidden; overscroll-behavior: contain;
+  /* ningún gesto pasa a la página de atrás (tirar para actualizar, deslizar entre días): los toques siguen andando */
+  touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.tv:focus { outline: none; }
+.tv :focus-visible { outline: 2px solid var(--bulb); outline-offset: 2px; }
+/* las 8 estrellas de la bandera, tenues, detrás del marcador */
+.tv::before {
+  content: ""; position: absolute; left: 50%; top: 9vh; width: 56vh; height: 24vh; margin-left: -28vh; pointer-events: none;
+  background: var(--stars) center / contain no-repeat; opacity: .06;
+}
+.tv > * { position: relative; min-width: 0; min-height: 0; }
+
+/* ---------- arriba: el estado, el retraso y salir ---------- */
+/* en una sola fila: con la letra grande se achica el estado (el inning termina en "…"), nunca la barra pasa a dos. La
+   letra de la barra crece con la del teléfono hasta un tope según el alto de la pantalla (igual que lo demás del modo
+   TV): al 100 % no cambia nada; al 200 % la barra no se come el estado. */
+.tv-bar { grid-area: bar; display: flex; align-items: center; flex-wrap: nowrap; gap: 4px 14px; min-height: 44px; }
+.tv-st { flex: 1 1 auto; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; color: var(--chalk-dim); white-space: nowrap; }
+.tv-st .pill { flex: none; font-size: min(var(--fs-cap), 3.6vh); border-color: var(--chalk-dim); color: var(--chalk); }
+.tv-st .pill.live { border-color: var(--live); }
+.tv-st .pill.rp-pill { background: var(--bulb); border-color: var(--bulb); color: #1a1405; } /* "Repetición", como en la pizarra */
+/* sin datos nuevos (sin conexión, o el vivo quieto): el aviso, en amarillo, toma el lugar de la píldora "En vivo" (lo
+   que se ve ya no es en vivo) y así no le quita sitio al inning. Bajo los 60rem, corto ("Hace 1 min"); el lector oye
+   la frase entera */
+.tv.viejo .tv-st .pill.live { display: none; }
+.tv-aviso { order: -1; flex: none; padding: 2px 8px; border-radius: 999px; background: var(--bulb); color: #1a1405; font: 700 min(var(--fs-cap), 3.6vh)/1.3 var(--font-body); white-space: nowrap; }
+.tv-av-c { display: none; }
+@media (max-width: 59.99rem) { .tv-av-c { display: inline; } .tv-av-c + .tv-av-l { display: none; } }
+.tv-inn { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 800 min(7.5vh, 1.75rem)/1 var(--font-display); color: var(--chalk); text-transform: uppercase; letter-spacing: .02em; }
+/* el retraso: un relojito y 0 · 15 · 30 · 45 · 60 · 90 s, el elegido en amarillo; cada botón con 44 × 44 de toque sin
+   agrandar la fila */
+.tv-ret { flex: none; display: flex; align-items: center; gap: 0; padding: 2px; border-radius: 999px; background: rgba(0, 0, 0, .22); }
+.tv-ret-l { display: inline-flex; align-items: center; gap: 4px; padding: 0 2px 0 8px; font: 700 min(var(--fs-cap), 3.6vh)/1 var(--font-body); text-transform: uppercase; letter-spacing: .07em; color: var(--chalk-dim); }
+.tv-ret-l .ic { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.tv-ret-u { padding: 0 10px 0 2px; font: 700 min(var(--fs-sm), 4.4vh)/1 var(--font-body); color: var(--chalk-dim); }
+.tv-ret button {
+  position: relative; min-width: 44px; height: 34px; margin: 0; padding: 0 6px; border: 0; border-radius: 999px;
+  background: none; color: var(--chalk); font: 700 min(var(--fs-sm), 4.4vh)/1 var(--font-body); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: transform var(--t-toque) var(--ease-out);
+}
+.tv-ret button::after { content: ""; position: absolute; inset: -5px 0; }
+.tv-ret button:active { transform: scale(.94); }
+.tv-ret button[aria-pressed="true"] { background: var(--bulb); color: #1a1405; }
+/* la repetición: seguir o pausa, y dónde va (lo que se achica es el rótulo, nunca el botón) */
+.tv-rp { flex: 0 1 auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tv-rp .btn { flex: none; min-width: 112px; white-space: nowrap; font-size: min(var(--fs-body), 5vh); background: var(--chalk); border-color: var(--chalk); color: var(--board); }
+.tv-rp .ic-f { width: 18px; height: 18px; fill: currentColor; flex: none; }
+.tv-rpl { flex: 1 1 auto; min-width: 0; font-size: min(var(--fs-sm), 4.4vh); color: var(--chalk-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-x {
+  position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 40px;
+  margin: 0; padding: 0 12px 0 8px; border: 1px solid var(--chalk-dim); border-radius: 999px; background: none; color: var(--chalk);
+  font: 700 min(var(--fs-sm), 4.4vh)/1 var(--font-body); cursor: pointer; transition: transform var(--t-toque) var(--ease-out);
+}
+.tv-x::after { content: ""; position: absolute; inset: -3px 0; }
+.tv-x:active { transform: scale(.95); }
+.tv-x .ic { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+
+/* ---------- tres columnas: lo que no cabe se recorta (la pantalla no se desplaza nunca) ---------- */
+.tv-a, .tv-b, .tv-c { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+.tv-a { grid-area: a; }
+.tv-b { grid-area: b; }
+.tv-c { grid-area: c; gap: 8px; }
+/* el marcador y la cuenta a la misma altura, arriba de sus columnas */
+.tv-score, .tv-cuenta { flex: none; height: min(21vh, 6.5rem); }
+/* la cuenta arriba; abajo la zona y, a su lado, la secuencia en columna (así la zona crece) */
+.tv-b { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "cu cu" "zn sq"; gap: 6px 8px; }
+.tv-cuenta { grid-area: cu; }
+.tv-zn { grid-area: zn; }
+.tv-seq { grid-area: sq; }
+
+/* ---------- el marcador y la cuenta: números grandes ---------- */
+/* todo en em de las carreras, que miden lo que cabe a lo ancho (con dos cifras, menos); sin unidades de contenedor,
+   en vw (la columna mide ~ un tercio de la pantalla) */
+.tv-score { container-type: inline-size; }
+.tv-sc {
+  height: 100%; display: flex; align-items: center; justify-content: center; gap: .13em;
+  font-size: min(20vh, 6rem, 9vw);
+  font-size: min(20vh, 6rem, 27cqw);
+}
+.tv-sc.dos { font-size: min(20vh, 6rem, 6.5vw); font-size: min(20vh, 6rem, 19.5cqw); }
+.tv-sc .bt-abbr { font-size: .31em; min-width: 2.5em; padding: 0 .3em; }
+.tv-sc.dos .bt-abbr { font-size: .36em; } /* con las carreras más chicas, las siglas no tanto */
+.tv-r {
+  font: 800 1em/.92 var(--font-display); min-width: .55em; text-align: center;
+  color: var(--chalk-dim); font-variant-numeric: tabular-nums;
+}
+.tv-r.lead { color: var(--chalk); }
+.tv-dash { font: 700 .42em/1 var(--font-display); color: var(--chalk-dim); }
+.tv-cuenta { display: flex; align-items: center; justify-content: center; gap: 4px min(4vh, 18px); }
+.tv-cuenta .bl3 { flex: none; display: grid; gap: min(1.2vh, 5px); margin: 0; }
+.tv-cuenta .bl { gap: 7px; }
+.tv-cuenta .bl > b { width: 1em; font-size: min(3.6vh, .85rem); }
+.tv-cuenta .bl > span { gap: 6px; }
+.tv-cuenta .bl i { width: min(4.6vh, 1.15rem); height: min(4.6vh, 1.15rem); }
+/* la cuenta en una línea: "3-2" no se parte en el guion */
+.tv-cnt { white-space: nowrap; font: 800 min(20vh, 8vw, 6rem)/.92 var(--font-display); color: var(--chalk); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+
+/* ---------- el campo y la zona: cada uno en su caja, del tamaño que cabe también de alto ---------- */
+.tv-fld, .tv-zn { flex: 1 1 0; min-height: 0; container-type: size; display: grid; place-items: center; }
+/* el campo entero mide 308 × 248 en su dibujo (charts.js); la zona, ~120 × 136 */
+.tv-field { width: 100%; width: min(100cqw, 100cqh / .83); }
+.tv-zone { width: 100%; width: min(100cqw, 100cqh / 1.18); }
+/* sin unidades de contenedor: la caja la fija la columna y el dibujo la llena; su viewBox lo achica entero */
+@supports not (width: 1cqh) {
+  .tv-fld, .tv-zn { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+  .tv-field, .tv-zone { width: 100%; height: 100%; min-height: 0; }
+  .tv-field .gf-pan, .tv-zone .gz-pan { height: 100%; }
+  .tv-field svg, .tv-zone svg { display: block; width: 100%; height: 100%; }
+}
+/* la línea de corredores bajo el campo (charts.js: .gf-lista, cuando sus fichas no caben en el dibujo con la letra
+   grande): la caja tiene su alto y el dibujo se achica para dejarle sitio, sin salirse encima del duelo */
+.tv-field { height: 100%; height: min(100cqh, 100cqw * .83); }
+.tv-field .gf-pan { height: 100%; display: flex; flex-direction: column; align-items: center; }
+.tv-field svg { flex: 1 1 0; min-height: 0; width: 100%; }
+.tv-field .gf-lista { flex: none; max-width: 100%; }
+.tv .gf-pan, .tv .gz-pan { padding: 0; border-radius: 0; background: none; }
+.tv-seq { display: flex; align-items: center; min-height: 0; }
+.tv .gz-seq { --zc: var(--chalk); --zc-dim: var(--chalk-dim); --zc-on: var(--board); justify-content: center; }
+/* en columna junto a la zona; si son muchos, otra columna */
+.tv-seq .gz-seq { flex-direction: column; flex-wrap: wrap; align-content: flex-start; max-height: 100%; }
+.tv .gz-c { font-size: min(4vh, 1rem); }
+/* sin lanzamiento a lanzamiento (juegos viejos): sin zona ni secuencia */
+.tv.sin-zona .tv-zn, .tv.sin-zona .tv-seq { display: none; }
+
+/* ---------- el duelo, las fichas y la última jugada (con la banda encima) ---------- */
+/* cada línea del duelo en una sola línea, con "…": con la letra grande el duelo no crece de alto */
+.tv-duel { flex: none; }
+.tv-duel .tn-duel { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.tv .dc { padding: min(1.4vh, 6px) 12px min(1.6vh, 7px); gap: 1px; }
+.tv .dc-lab { font-size: min(max(var(--fs-cap), 3.3vh), 4.4vh); }
+.tv .dc-lab > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv .dc-lab > span:first-child { flex: none; }
+.tv .dc-nm { font-size: min(5.2vh, 1.3rem); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv .dc-nm small { font-size: min(3.6vh, .85rem); }
+.tv .dc-ln { font-size: min(4.2vh, 1.05rem); }
+.tv .plink { color: var(--chalk); font-weight: 700; }
+/* la franja de comentario: las fichas y la última jugada, enteras o nada (js/juego.js, tvFit, esconde lo que no cabe:
+   primero las fichas, después la jugada); la banda va encima de toda la franja */
+.tv-com { position: relative; flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+.tv .tn-ctx { flex: none; flex-wrap: wrap; margin: 0; padding: 0; overflow: hidden; max-height: calc(min(4vh, .95rem) * 1.2 + 10px); }
+.tv .cx { font-size: min(4vh, .95rem); min-height: 0; }
+.tv-lp { flex: none; }
+.tv .lastplay { font-size: min(4.4vh, 1.1rem); line-height: 1.3; }
+.tv-lp .lp-t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+@media (max-height: 400px) { .tv-lp .lp-t { -webkit-line-clamp: 2; } }
+/* la banda: el título en una línea aun en la columna angosta (640 px: "CAMBIO DE LANZADOR"), el texto en 2 (en 1 o
+   nada si la franja es baja: .corta, .cortisima) y la barrita del tiempo siempre abajo, sin texto encima */
+.tv-band { justify-content: flex-start; }
+.tv-band .mo-bar { margin-top: auto; }
+.tv-band .mo-t { font-size: min(5.8vh, 1.6rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-band .mo-h { flex-wrap: nowrap; min-width: 0; }
+.tv-band .mo-s { font-size: min(5.2vh, 1.4rem); white-space: nowrap; }
+.tv-band .mo-d { font-size: min(4.4vh, 1.05rem); }
+.tv-band.corta .mo-d { -webkit-line-clamp: 1; }
+.tv-band.cortisima .mo-d { display: none; }
+
+/* ---------- la franja de la curva ---------- */
+.tv-wp { grid-area: wp; display: flex; align-items: center; gap: 10px; height: min(11vh, 3.25rem); }
+.tv-wp-k {
+  display: flex; flex-direction: column; justify-content: space-between; align-self: stretch; padding: 2px 0;
+  font: 700 min(var(--fs-cap), 3.6vh)/1 var(--font-body); letter-spacing: .05em; color: var(--chalk-dim);
+}
+.tv-wp-svg { flex: 1 1 auto; min-width: 0; align-self: stretch; height: auto; display: block; border-radius: 6px; background: rgba(0, 0, 0, .18); }
+.tv-wp-area { opacity: .32; }
+.tv-wp-area.away { fill: var(--tv-away); }
+.tv-wp-area.home { fill: var(--tv-home); }
+.tv-wp-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
+.tv-wp-line.away { stroke: var(--tv-away); }
+.tv-wp-line.home { stroke: var(--tv-home); }
+.tv-wp-base { stroke: var(--chalk); stroke-opacity: .35; stroke-width: 1; }
+.tv-wp-n { display: flex; align-items: center; gap: 6px; white-space: nowrap; font: 700 min(4.4vh, 1rem)/1 var(--font-body); color: var(--chalk-dim); }
+.tv-wp-n b { font: 800 min(7.5vh, 1.75rem)/1 var(--font-display); color: var(--chalk); font-variant-numeric: tabular-nums; }
+.tv-wp-n .k { margin: 0; }
+.tv .k.away { background: var(--tv-away); }
+.tv .k.home { background: var(--tv-home); }
+
+/* ---------- pantalla angosta (640 px acostado, o en vertical): sin rótulos de más en la barra ---------- */
+/* del retraso queda el relojito; la cuenta, un poco más chica para que quepa en una línea en su columna */
+@media (max-width: 720px) {
+  .tv { column-gap: 12px; }
+  .tv-ret-lt, .tv-x-t { display: none; }
+  .tv-ret-l { padding-right: 0; }
+  .tv-x { padding: 0; width: 44px; }
+  .tv-cnt { font-size: min(20vh, 7vw, 6rem); }
+}
+
+/* ---------- vertical (abierto con el botón): una columna ---------- */
+@media (orientation: portrait) {
+  .tv {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "bar bar" "sc sc" "cu cu" "fld zn" "fld sq" "c c" "wp wp";
+    row-gap: 10px;
+  }
+  /* arriba el estado y "Salir"; el retraso (o la repetición), en la fila de abajo, entera */
+  .tv-bar { flex-wrap: wrap; }
+  .tv-x { order: 1; }
+  .tv-ret, .tv-rp { order: 2; }
+  .tv-rp { flex: 1 1 100%; }
+  /* las columnas se deshacen: cada pieza en su lugar */
+  .tv-a, .tv-b { display: contents; }
+  .tv-score { grid-area: sc; }
+  .tv-cuenta { grid-area: cu; }
+  .tv-fld { grid-area: fld; }
+  .tv-zn { grid-area: zn; }
+  .tv-seq { grid-area: sq; justify-content: center; }
+  .tv-seq .gz-seq { flex-direction: row; max-height: none; }
+  .tv.sin-zona { grid-template-areas: "bar bar" "sc sc" "cu cu" "fld fld" "fld fld" "c c" "wp wp"; }
+  .tv-score, .tv-cuenta { height: auto; }
+  .tv-sc { font-size: min(19vw, 6rem); }
+  .tv-sc.dos { font-size: min(15vw, 6rem); }
+  .tv::before { top: 12vh; width: 60vw; height: 26vw; margin-left: -30vw; }
+  .tv-inn { font-size: min(7vw, 1.75rem); }
+  .tv-cnt { font-size: min(17vw, 5rem); }
+  .tv-cuenta .bl i { width: min(4.6vw, 1.15rem); height: min(4.6vw, 1.15rem); }
+  .tv-cuenta .bl > b { font-size: min(3.6vw, .85rem); }
+  .tv .dc-nm { font-size: min(5vw, 1.3rem); }
+  .tv .dc-ln, .tv .lastplay { font-size: min(4.2vw, 1.05rem); }
+  /* el duelo y la última jugada enteros: lo que sobra es para el campo y la zona (los mínimos, con tope por el ancho:
+     con la letra grande no dejan un hueco vacío) */
+  .tv-c { min-height: min(9rem, 42vw); }
+  .tv-com, .tv-lp { flex: none; }
+  .tv-com { min-height: min(5.5rem, 26vw); }
+  .tv-wp { height: min(7vh, 3.25rem); }
+  .tv-band .mo-t { font-size: min(8vw, 2rem); }
+  .tv-band .mo-s { font-size: min(6.25vw, 1.4rem); }
+  .tv-band .mo-d { font-size: min(4.7vw, 1.05rem); }
+  /* los topes de la letra, por el ancho (en vertical el alto sobra): con la letra grande no se come el campo y la zona */
+  .tv-st .pill, .tv-aviso, .tv-ret-l, .tv-wp-k { font-size: min(var(--fs-cap), 3.6vw); }
+  .tv-ret button, .tv-ret-u, .tv-x, .tv-rpl { font-size: min(var(--fs-sm), 4.4vw); }
+  .tv-rp .btn { font-size: min(var(--fs-body), 5vw); }
+  .tv .dc-lab { font-size: min(max(var(--fs-cap), 3.3vw), 4.4vw); }
+  .tv .gz-c { font-size: min(3.6vw, 1rem); }
+  .tv .cx { font-size: min(4.25vw, .95rem); }
+  .tv-wp-n { font-size: min(4.2vw, 1rem); }
+  .tv-wp-n b { font-size: min(7vw, 1.75rem); }
+}
