@@ -5,7 +5,8 @@
 Los dos van con fondo transparente y sin "LVBP": la app no tiene relación oficial con la liga. Si cambia el logo, se
 reemplazan esos dos archivos y se corre esto. Los íconos de los accesos directos siguen en herramientas/iconos.py.
 Uso: python herramientas/logo.py  -> escribe icons/icon-192.png, icon-512.png, icon-maskable-512.png,
-apple-touch-icon.png y compartir.png
+apple-touch-icon.png y compartir.jpg (JPG: WhatsApp no muestra la vista previa
+si la imagen pesa mucho; así queda en ~100 KB)
 """
 from pathlib import Path
 from PIL import Image, ImageDraw
@@ -49,7 +50,7 @@ def main():
     cuadro(pc, 512, 0.90, True).save(DIR / "icon-512.png")
     cuadro(pc, 512, 0.78, False).save(DIR / "icon-maskable-512.png")             # zona segura para Android
     cuadro(pc, 180, 0.88, False).convert("RGB").save(DIR / "apple-touch-icon.png")  # iPhone redondea solo
-    compartir(escudo).save(DIR / "compartir.png")
+    compartir(escudo).save(DIR / "compartir.jpg", quality=88, optimize=True, progressive=True)
     print("íconos e imagen para compartir listos en", DIR)
 
 

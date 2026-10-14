@@ -7,7 +7,7 @@
    AL PUBLICAR: subir VERSION aquí y el ?v= de todos los archivos en index.html (los dos al mismo número); un archivo
    nuevo va también en SHELL. Sin eso, la gente se queda con la versión vieja: los archivos con ?v= se sirven de la
    copia sin preguntar a la red. Todos los pasos: README.md, "Publicar una versión nueva". */
-const VERSION = '9';
+const VERSION = '10';
 const APP = 'pizarra-app-v' + VERSION;
 const DATA = 'pizarra-datos-v2';
 const FONTS = 'pizarra-fuentes-v1';
