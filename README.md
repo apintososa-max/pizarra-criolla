@@ -3,7 +3,7 @@
 App web para el teléfono con todo lo de la LVBP: juegos en vivo, tabla, líderes, equipos y jugadores,
 con métricas avanzadas que se recalculan solas a medida que avanzan los juegos.
 
-**En línea:** https://apintososa-max.github.io/pizarra-criolla/ — se abre en el teléfono y se instala desde el menú
+**En línea:** https://pizarracriolla.com/ (antes apintososa-max.github.io/pizarra-criolla, que redirige sola) — se abre en el teléfono y se instala desde el menú
 del navegador ("Agregar a la pantalla principal" en Android, "Agregar a inicio" en iPhone).
 
 ## De dónde salen los datos

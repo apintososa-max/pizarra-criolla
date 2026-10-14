@@ -1330,7 +1330,7 @@
   // también al probar en local; sin url, la pantalla abierta.
   const PUBLIC = (() => {
     const m = document.querySelector('meta[property="og:url"]');
-    return (m && m.content) || 'https://apintososa-max.github.io/pizarra-criolla/';
+    return (m && m.content) || 'https://pizarracriolla.com/';
   })();
   const fullUrl = u => {
     const s = u == null || u === '' ? (location.hash || '#/juegos') : String(u);
