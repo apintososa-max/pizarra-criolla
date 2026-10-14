@@ -112,6 +112,7 @@ body:has(> .chapita.on) .conn { top: calc(var(--top-h, 62px) + max(48px, 3rem) +
 }
 .update-btn:active { transform: scale(.95); }
 .update-btn:disabled { opacity: .75; cursor: default; }
+a.update-btn { display: inline-flex; align-items: center; text-decoration: none; } /* "Abrir" del aviso de mudanza */
 
 /* de noche, los avisos van sobre un azul medio (la tinta clara deslumbra) */
 @media (prefers-color-scheme: dark) {

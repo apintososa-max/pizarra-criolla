@@ -1524,6 +1524,30 @@
     }).catch(() => { /* sin modo sin conexión */ });
   }
 
+  // ---------- mudanza a pizarracriolla.com ----------
+  // La app instalada desde la dirección vieja (github.io) no puede actualizarse cuando GitHub la redirige al dominio
+  // propio. Mientras el dominio nuevo no responda, nada; cuando responda, se avisa y se ofrece la misma pantalla allá,
+  // para abrirla e instalarla de nuevo.
+  const NUEVA = 'https://pizarracriolla.com/';
+  function mudanza() {
+    if (!/\.github\.io$/.test(location.hostname)) return;
+    const box = document.getElementById('update');
+    let visto = false;
+    const mira = () => {
+      if (visto || !box) return;
+      fetch(NUEVA + 'manifest.webmanifest', { cache: 'no-store' }).then(r => {
+        if (!r.ok || visto) return;
+        visto = true;
+        box.innerHTML = '<p class="update-in" role="status"><span>La app se mudó a pizarracriolla.com</span>' +
+          `<a class="update-btn" href="${esc(NUEVA + location.hash)}">Abrir</a></p>`;
+        box.hidden = false;
+        requestAnimationFrame(() => requestAnimationFrame(() => box.classList.add('in')));
+      }).catch(() => { /* sin señal, o el dominio todavía no responde: se mira otra vez al volver a la app */ });
+    };
+    setTimeout(mira, 3000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) mira(); });
+  }
+
   async function boot() {
     PC.arranco = true; // el vigía de index.html (core.js no cargó o no arrancó) ya no hace falta: desde aquí vigila core.js
     const el = document.getElementById('view');
@@ -1587,6 +1611,7 @@
     setInterval(tick, 1000);
     setInterval(pulse, 60000);
     swInit();
+    mudanza();
   }
 
   // En iPhone, :active (la tarjeta que se hunde al tocarla) solo funciona si hay algún touchstart escuchando.
